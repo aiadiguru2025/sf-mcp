@@ -1,0 +1,22 @@
+# Environment files (contains secrets)
+.env
+
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Documentation (not needed in container)
+README.md
+.env.example

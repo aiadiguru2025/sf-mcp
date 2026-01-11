@@ -147,6 +147,81 @@ Here are some commonly used OData entities you can query:
 - `FODepartment` - Department foundation object
 - `FOJobCode` - Job code foundation object
 
+## Cloud Deployment (Google Cloud Run)
+
+Deploy this MCP server to Google Cloud Run for remote access.
+
+### Prerequisites
+
+- Google Cloud account with billing enabled
+- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed
+- Docker installed (for local testing)
+
+### Local Testing with Docker
+
+```bash
+# Build the image
+docker build -t sf-mcp .
+
+# Run locally (uses .env file)
+docker run -p 8080:8080 --env-file .env sf-mcp
+
+# Test the endpoint
+curl http://localhost:8080/mcp
+```
+
+### Deploy to Cloud Run
+
+```bash
+# Set your project ID
+export PROJECT_ID=your-gcp-project-id
+
+# Build and push to Google Container Registry
+gcloud builds submit --tag gcr.io/$PROJECT_ID/sf-mcp
+
+# Deploy to Cloud Run
+gcloud run deploy sf-mcp \
+  --image gcr.io/$PROJECT_ID/sf-mcp \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars "SF_USER_ID=your_user_id,SF_PASSWORD=your_password,SF_API_HOST=api55preview.sapsf.eu"
+```
+
+### Claude Desktop Config (Remote Server)
+
+After deployment, update your Claude Desktop config to use the Cloud Run URL:
+
+```json
+{
+  "mcpServers": {
+    "sf-mcp": {
+      "url": "https://sf-mcp-xxxxx-uc.a.run.app/mcp"
+    }
+  }
+}
+```
+
+Replace `sf-mcp-xxxxx-uc.a.run.app` with your actual Cloud Run URL (shown after deployment).
+
+### Security for Production
+
+For production deployments, use Cloud Run secrets instead of plain environment variables:
+
+```bash
+# Create secrets
+echo -n "your_user_id" | gcloud secrets create sf-user-id --data-file=-
+echo -n "your_password" | gcloud secrets create sf-password --data-file=-
+
+# Deploy with secrets
+gcloud run deploy sf-mcp \
+  --image gcr.io/$PROJECT_ID/sf-mcp \
+  --platform managed \
+  --region us-central1 \
+  --set-secrets "SF_USER_ID=sf-user-id:latest,SF_PASSWORD=sf-password:latest" \
+  --set-env-vars "SF_API_HOST=api55preview.sapsf.eu"
+```
+
 ## Project Structure
 
 ```
@@ -156,7 +231,10 @@ sf-mcp/
 ├── uv.lock              # Dependency lock file
 ├── .python-version      # Python version specification
 ├── .env.example         # Example environment variables
-├── .gitignore           # Git ignore rules (includes .env)
+├── .env                 # Local environment variables (gitignored)
+├── .gitignore           # Git ignore rules
+├── Dockerfile           # Container image for Cloud Run
+├── .dockerignore        # Files excluded from Docker build
 └── README.md            # This documentation
 ```
 
@@ -165,6 +243,8 @@ sf-mcp/
 - `mcp[cli]>=1.25.0` - Model Context Protocol SDK
 - `requests>=2.31.0` - HTTP client library
 - `xmltodict>=0.13.0` - XML to dictionary parser
+- `python-dotenv>=1.0.0` - Environment variable loader
+- `uvicorn>=0.30.0` - ASGI server for HTTP transport
 
 ## Troubleshooting
 

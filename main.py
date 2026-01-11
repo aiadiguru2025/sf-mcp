@@ -1,7 +1,8 @@
 import os
+import asyncio
 from typing import Any
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 import requests
 import xmltodict
 
@@ -9,7 +10,7 @@ import xmltodict
 load_dotenv()
 
 #Init Server
-mcp = FastMCP("SFgetConfig", dependencies=["requests","xmltodict","python-dotenv"])
+mcp = FastMCP("SFgetConfig")
 
 @mcp.tool()
 def get_configuration(instance: str , entity: str ) -> dict[str, Any]:
@@ -50,4 +51,14 @@ def get_configuration(instance: str , entity: str ) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    # Get port from environment (Cloud Run sets PORT)
+    port = int(os.environ.get("PORT", 8080))
+
+    # Use streamable-http transport for Cloud Run deployment
+    asyncio.run(
+        mcp.run_async(
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=port,
+        )
+    )
