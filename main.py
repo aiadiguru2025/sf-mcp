@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 import requests
 import defusedxml.ElementTree as DefusedET
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -317,6 +319,49 @@ def _resolve_credentials(
     resolved_user_id = auth_user_id if auth_user_id else os.environ.get("SF_USER_ID")
     resolved_password = auth_password if auth_password else os.environ.get("SF_PASSWORD")
     return resolved_user_id, resolved_password
+
+
+# =============================================================================
+# SECURITY: API Key Authentication for MCP Endpoint
+# =============================================================================
+
+def _get_mcp_api_key() -> str | None:
+    """
+    Get MCP API key from environment or GCP Secret Manager.
+
+    Priority:
+    1. MCP_API_KEY environment variable
+    2. GCP Secret Manager (if GCP_PROJECT_ID is set)
+
+    Returns:
+        API key string or None if not configured
+    """
+    # Try environment variable first
+    api_key = os.environ.get("MCP_API_KEY")
+    if api_key:
+        return api_key
+
+    # Try GCP Secret Manager
+    try:
+        from google.cloud import secretmanager
+        project_id = os.environ.get("GCP_PROJECT_ID")
+        if project_id:
+            client = secretmanager.SecretManagerServiceClient()
+            name = f"projects/{project_id}/secrets/mcp-api-key/versions/latest"
+            response = client.access_secret_version(request={"name": name})
+            return response.payload.data.decode("UTF-8")
+    except Exception:
+        pass
+
+    return None
+
+
+# Initialize API key at startup
+MCP_API_KEY = _get_mcp_api_key()
+if MCP_API_KEY:
+    logger.info("MCP API key authentication enabled")
+else:
+    logger.warning("MCP API key not configured - endpoint is unprotected")
 
 
 #Init Server
@@ -2046,15 +2091,69 @@ def get_picklist_values(
     return response_data
 
 
+# =============================================================================
+# SECURITY: API Key Middleware
+# =============================================================================
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to validate API key for MCP endpoint protection.
+
+    Accepts API key via:
+    - X-API-Key header
+    - Authorization: Bearer <key> header
+    """
+
+    async def dispatch(self, request, call_next):
+        # Skip auth for health check endpoints
+        if request.url.path in ["/health", "/healthz", "/"]:
+            return await call_next(request)
+
+        # Check API key if configured
+        if MCP_API_KEY:
+            client_key = request.headers.get("X-API-Key")
+            if not client_key:
+                # Try Authorization header
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    client_key = auth_header[7:]
+
+            if client_key != MCP_API_KEY:
+                _audit_log(
+                    event_type="authentication",
+                    status="failure",
+                    details={
+                        "reason": "invalid_api_key",
+                        "path": str(request.url.path),
+                        "has_key": bool(client_key)
+                    }
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "Invalid or missing API key"}
+                )
+
+        return await call_next(request)
+
+
 if __name__ == "__main__":
+    import uvicorn
+
     # Get port from environment (Cloud Run sets PORT)
     port = int(os.environ.get("PORT", 8080))
 
-    # Use streamable-http transport for Cloud Run deployment
-    asyncio.run(
-        mcp.run_async(
-            transport="streamable-http",
-            host="0.0.0.0",
-            port=port,
-        )
+    # Build middleware list for HTTP app
+    middleware_list = []
+    if MCP_API_KEY:
+        from starlette.middleware import Middleware as StarletteMiddleware
+        middleware_list.append(StarletteMiddleware(APIKeyMiddleware))
+        logger.info(f"API key middleware registered for port {port}")
+
+    # Create HTTP app with middleware
+    app = mcp.http_app(
+        transport="streamable-http",
+        middleware=middleware_list if middleware_list else None
     )
+
+    # Run with uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=port)
