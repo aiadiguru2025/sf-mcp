@@ -1,6 +1,10 @@
 import os
 import re
 import asyncio
+import logging
+import json
+import time
+import uuid
 from typing import Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -9,6 +13,119 @@ import defusedxml.ElementTree as DefusedET
 
 # Load environment variables from .env file
 load_dotenv()
+
+
+# =============================================================================
+# SECURITY: Structured Logging Configuration (Cloud Logging compatible)
+# =============================================================================
+
+class CloudLoggingFormatter(logging.Formatter):
+    """JSON formatter compatible with Google Cloud Logging."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "severity": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name,
+        }
+
+        # Add extra fields if present
+        if hasattr(record, "audit_data"):
+            log_entry["audit"] = record.audit_data
+        if hasattr(record, "request_id"):
+            log_entry["request_id"] = record.request_id
+        if hasattr(record, "tool_name"):
+            log_entry["tool_name"] = record.tool_name
+        if hasattr(record, "duration_ms"):
+            log_entry["duration_ms"] = record.duration_ms
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(log_entry)
+
+
+def _setup_logging() -> logging.Logger:
+    """Configure structured logging for the application."""
+    logger = logging.getLogger("sf-mcp")
+    logger.setLevel(logging.INFO)
+
+    # Avoid duplicate handlers
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(CloudLoggingFormatter())
+        logger.addHandler(handler)
+
+    return logger
+
+
+# Initialize logger
+logger = _setup_logging()
+
+
+def _mask_sensitive_data(data: dict) -> dict:
+    """Mask sensitive fields in data for logging."""
+    sensitive_fields = {"auth_password", "password", "SF_PASSWORD", "credentials"}
+    masked = {}
+    for key, value in data.items():
+        if key.lower() in {f.lower() for f in sensitive_fields}:
+            masked[key] = "***MASKED***" if value else None
+        elif isinstance(value, dict):
+            masked[key] = _mask_sensitive_data(value)
+        else:
+            masked[key] = value
+    return masked
+
+
+def _audit_log(
+    event_type: str,
+    tool_name: str | None = None,
+    instance: str | None = None,
+    user_id: str | None = None,
+    status: str = "success",
+    details: dict | None = None,
+    request_id: str | None = None,
+    duration_ms: float | None = None
+) -> None:
+    """
+    Log an audit event with structured data.
+
+    Args:
+        event_type: Type of event (tool_invocation, authentication, validation_error, api_request)
+        tool_name: Name of the MCP tool being called
+        instance: SuccessFactors instance ID
+        user_id: User ID making the request (masked for auth events)
+        status: Event status (success, failure, error)
+        details: Additional event details (sensitive data will be masked)
+        request_id: Unique request identifier for tracing
+        duration_ms: Request duration in milliseconds
+    """
+    audit_data = {
+        "event_type": event_type,
+        "status": status,
+        "instance": instance,
+    }
+
+    if tool_name:
+        audit_data["tool_name"] = tool_name
+    if user_id:
+        # Only log first 4 chars of user ID for privacy
+        audit_data["user_id_prefix"] = user_id[:4] + "***" if len(user_id) > 4 else "***"
+    if details:
+        audit_data["details"] = _mask_sensitive_data(details)
+
+    # Create log record with extra fields
+    extra = {
+        "audit_data": audit_data,
+        "request_id": request_id or str(uuid.uuid4())[:8],
+    }
+    if tool_name:
+        extra["tool_name"] = tool_name
+    if duration_ms is not None:
+        extra["duration_ms"] = round(duration_ms, 2)
+
+    level = logging.INFO if status == "success" else logging.WARNING
+    logger.log(level, f"AUDIT: {event_type} - {status}", extra=extra)
 
 
 # =============================================================================
@@ -146,7 +263,8 @@ def _make_sf_odata_request(
     params: dict | None = None,
     environment: str = "preview",
     auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_password: str | None = None,
+    request_id: str | None = None
 ) -> dict[str, Any]:
     """
     Make an OData API request to SuccessFactors (JSON format).
@@ -158,14 +276,25 @@ def _make_sf_odata_request(
         environment: API environment - 'preview' or 'production' (default: preview)
         auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
         auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        request_id: Optional request ID for tracing
 
     Returns:
         dict with either the JSON response data or an error dict
     """
+    req_id = request_id or str(uuid.uuid4())[:8]
+    start_time = time.time()
+
     user_id, password = _resolve_credentials(auth_user_id, auth_password)
     api_host = _get_api_host(environment)
 
     if not user_id or not password:
+        _audit_log(
+            event_type="authentication",
+            instance=instance,
+            status="failure",
+            details={"reason": "missing_credentials", "endpoint": endpoint},
+            request_id=req_id
+        )
         return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters, or set SF_USER_ID and SF_PASSWORD environment variables."}
 
     username = f"{user_id}@{instance}"
@@ -174,21 +303,86 @@ def _make_sf_odata_request(
     headers = {"Accept": "application/json"}
 
     try:
-        response = requests.get(url, auth=credentials, headers=headers, params=params)
+        response = requests.get(url, auth=credentials, headers=headers, params=params, timeout=30)
+        duration_ms = (time.time() - start_time) * 1000
+
+        if response.status_code == 401:
+            _audit_log(
+                event_type="authentication",
+                instance=instance,
+                user_id=user_id,
+                status="failure",
+                details={"reason": "invalid_credentials", "endpoint": endpoint, "http_status": 401},
+                request_id=req_id,
+                duration_ms=duration_ms
+            )
+            return {
+                "error": f"HTTP {response.status_code}",
+                "message": "Authentication failed. Check credentials."
+            }
 
         if response.status_code != 200:
+            _audit_log(
+                event_type="api_request",
+                instance=instance,
+                user_id=user_id,
+                status="error",
+                details={"endpoint": endpoint, "http_status": response.status_code},
+                request_id=req_id,
+                duration_ms=duration_ms
+            )
             return {
                 "error": f"HTTP {response.status_code}",
                 "message": response.text[:500]
             }
 
         if not response.text.strip():
+            _audit_log(
+                event_type="api_request",
+                instance=instance,
+                user_id=user_id,
+                status="error",
+                details={"reason": "empty_response", "endpoint": endpoint},
+                request_id=req_id,
+                duration_ms=duration_ms
+            )
             return {"error": "Empty response from API"}
+
+        # Log successful API request
+        _audit_log(
+            event_type="api_request",
+            instance=instance,
+            user_id=user_id,
+            status="success",
+            details={"endpoint": endpoint, "http_status": 200},
+            request_id=req_id,
+            duration_ms=duration_ms
+        )
 
         return response.json()
     except requests.exceptions.RequestException as e:
+        duration_ms = (time.time() - start_time) * 1000
+        _audit_log(
+            event_type="api_request",
+            instance=instance,
+            user_id=user_id,
+            status="error",
+            details={"reason": "request_exception", "endpoint": endpoint, "error": str(e)},
+            request_id=req_id,
+            duration_ms=duration_ms
+        )
         return {"error": f"Request failed: {str(e)}"}
     except ValueError as e:
+        duration_ms = (time.time() - start_time) * 1000
+        _audit_log(
+            event_type="api_request",
+            instance=instance,
+            user_id=user_id,
+            status="error",
+            details={"reason": "json_parse_error", "endpoint": endpoint},
+            request_id=req_id,
+            duration_ms=duration_ms
+        )
         return {"error": f"JSON parse error: {str(e)}", "response_preview": response.text[:500]}
 
 @mcp.tool()
@@ -209,45 +403,139 @@ def get_configuration(
         auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
         auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_configuration",
+        instance=instance,
+        status="started",
+        details={"entity": entity, "environment": environment},
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
         _validate_identifier(entity, "entity")
         _validate_environment(environment)
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_configuration",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     user_id, password = _resolve_credentials(auth_user_id, auth_password)
     api_host = _get_api_host(environment)
 
     if not user_id or not password:
+        _audit_log(
+            event_type="authentication",
+            tool_name="get_configuration",
+            instance=instance,
+            status="failure",
+            details={"reason": "missing_credentials"},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters, or set SF_USER_ID and SF_PASSWORD environment variables."}
 
     username = f"{user_id}@{instance}"
     apiUrl = f"https://{api_host}/odata/v2/{entity}/$metadata"
     credentials = (username, password)
 
-    meta_response = requests.get(apiUrl, auth=credentials, timeout=30)
-
-    # Check if request was successful
-    if meta_response.status_code != 200:
-        return {
-            "error": f"HTTP {meta_response.status_code}",
-            "message": "Request failed. Check instance and entity parameters."
-        }
-
-    # Check if response is empty
-    if not meta_response.text.strip():
-        return {"error": "Empty response from API"}
-
-    # Try to parse XML safely (prevents XXE attacks)
     try:
+        meta_response = requests.get(apiUrl, auth=credentials, timeout=30)
+        duration_ms = (time.time() - start_time) * 1000
+
+        # Check if request was successful
+        if meta_response.status_code == 401:
+            _audit_log(
+                event_type="authentication",
+                tool_name="get_configuration",
+                instance=instance,
+                user_id=user_id,
+                status="failure",
+                details={"reason": "invalid_credentials", "http_status": 401},
+                request_id=request_id,
+                duration_ms=duration_ms
+            )
+            return {"error": "HTTP 401", "message": "Authentication failed. Check credentials."}
+
+        if meta_response.status_code != 200:
+            _audit_log(
+                event_type="tool_invocation",
+                tool_name="get_configuration",
+                instance=instance,
+                user_id=user_id,
+                status="error",
+                details={"http_status": meta_response.status_code},
+                request_id=request_id,
+                duration_ms=duration_ms
+            )
+            return {
+                "error": f"HTTP {meta_response.status_code}",
+                "message": "Request failed. Check instance and entity parameters."
+            }
+
+        # Check if response is empty
+        if not meta_response.text.strip():
+            _audit_log(
+                event_type="tool_invocation",
+                tool_name="get_configuration",
+                instance=instance,
+                user_id=user_id,
+                status="error",
+                details={"reason": "empty_response"},
+                request_id=request_id,
+                duration_ms=duration_ms
+            )
+            return {"error": "Empty response from API"}
+
+        # Try to parse XML safely (prevents XXE attacks)
         meta_json = _xml_to_dict(meta_response.text.encode("UTF-8"))
+
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_configuration",
+            instance=instance,
+            user_id=user_id,
+            status="success",
+            details={"entity": entity},
+            request_id=request_id,
+            duration_ms=duration_ms
+        )
+
         return meta_json
+    except requests.exceptions.RequestException as e:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_configuration",
+            instance=instance,
+            status="error",
+            details={"reason": "request_exception", "error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": f"Request failed: {str(e)}"}
     except Exception as e:
-        return {
-            "error": f"XML parse error: {str(e)}"
-        }
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_configuration",
+            instance=instance,
+            status="error",
+            details={"reason": "xml_parse_error", "error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": f"XML parse error: {str(e)}"}
 
 
 @mcp.tool()
@@ -271,11 +559,32 @@ def get_rbp_roles(
     Returns:
         dict containing list of roles with roleId, roleName, userType, lastModifiedDate
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_rbp_roles",
+        instance=instance,
+        status="started",
+        details={"include_description": include_description, "environment": environment},
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
         _validate_environment(environment)
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_rbp_roles",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     select_fields = "roleId,roleName,userType,lastModifiedDate"
@@ -283,15 +592,42 @@ def get_rbp_roles(
         select_fields += ",roleDesc"
 
     params = {"$select": select_fields, "$format": "json"}
-    result = _make_sf_odata_request(instance, "/odata/v2/RBPRole", params, environment, auth_user_id, auth_password)
+    result = _make_sf_odata_request(instance, "/odata/v2/RBPRole", params, environment, auth_user_id, auth_password, request_id)
 
     if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_rbp_roles",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return result
 
     # Extract results from OData response
     if "d" in result and "results" in result["d"]:
-        return {"roles": result["d"]["results"], "count": len(result["d"]["results"])}
+        role_count = len(result["d"]["results"])
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_rbp_roles",
+            instance=instance,
+            status="success",
+            details={"roles_returned": role_count},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"roles": result["d"]["results"], "count": role_count}
 
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_rbp_roles",
+        instance=instance,
+        status="success",
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
     return result
 
 
@@ -316,6 +652,18 @@ def get_dynamic_groups(
     Returns:
         dict containing list of dynamic groups
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_dynamic_groups",
+        instance=instance,
+        status="started",
+        details={"group_type": group_type, "environment": environment},
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
@@ -323,6 +671,15 @@ def get_dynamic_groups(
         if group_type:
             _validate_identifier(group_type, "group_type")
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_dynamic_groups",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     params = {"$format": "json"}
@@ -331,15 +688,42 @@ def get_dynamic_groups(
         safe_group_type = _sanitize_odata_string(group_type)
         params["$filter"] = f"groupType eq '{safe_group_type}'"
 
-    result = _make_sf_odata_request(instance, "/odata/v2/DynamicGroup", params, environment, auth_user_id, auth_password)
+    result = _make_sf_odata_request(instance, "/odata/v2/DynamicGroup", params, environment, auth_user_id, auth_password, request_id)
 
     if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_dynamic_groups",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return result
 
     # Extract results from OData response
     if "d" in result and "results" in result["d"]:
-        return {"groups": result["d"]["results"], "count": len(result["d"]["results"])}
+        group_count = len(result["d"]["results"])
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_dynamic_groups",
+            instance=instance,
+            status="success",
+            details={"groups_returned": group_count},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"groups": result["d"]["results"], "count": group_count}
 
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_dynamic_groups",
+        instance=instance,
+        status="success",
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
     return result
 
 
@@ -366,6 +750,18 @@ def get_role_permissions(
     Returns:
         dict containing role details and permissions
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_role_permissions",
+        instance=instance,
+        status="started",
+        details={"role_ids": role_ids, "locale": locale, "environment": environment},
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
@@ -373,16 +769,43 @@ def get_role_permissions(
         _validate_locale(locale)
         _validate_environment(environment)
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_role_permissions",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     # Sanitize role_ids for OData query
     safe_role_ids = _sanitize_odata_string(role_ids)
     params = {"locale": locale, "roleIds": f"'{safe_role_ids}'", "$format": "json"}
-    result = _make_sf_odata_request(instance, "/odata/v2/getRolesPermissions", params, environment, auth_user_id, auth_password)
+    result = _make_sf_odata_request(instance, "/odata/v2/getRolesPermissions", params, environment, auth_user_id, auth_password, request_id)
 
     if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_role_permissions",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return result
 
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_role_permissions",
+        instance=instance,
+        status="success",
+        details={"role_ids": role_ids},
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
     return {"role_ids": role_ids, "permissions": result}
 
 
@@ -409,6 +832,18 @@ def get_user_permissions(
     Returns:
         dict containing the users' effective permissions from all assigned roles
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_user_permissions",
+        instance=instance,
+        status="started",
+        details={"user_ids_count": len(user_ids.split(",")), "locale": locale, "environment": environment},
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
@@ -416,16 +851,43 @@ def get_user_permissions(
         _validate_locale(locale)
         _validate_environment(environment)
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_user_permissions",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     # Sanitize user_ids for OData query
     safe_user_ids = _sanitize_odata_string(user_ids)
     params = {"locale": locale, "userIds": f"'{safe_user_ids}'", "$format": "json"}
-    result = _make_sf_odata_request(instance, "/odata/v2/getUsersPermissions", params, environment, auth_user_id, auth_password)
+    result = _make_sf_odata_request(instance, "/odata/v2/getUsersPermissions", params, environment, auth_user_id, auth_password, request_id)
 
     if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_user_permissions",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return result
 
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_user_permissions",
+        instance=instance,
+        status="success",
+        details={"user_ids_count": len(user_ids.split(","))},
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
     return {"user_ids": user_ids, "permissions": result}
 
 
@@ -453,16 +915,59 @@ def get_permission_metadata(
     Returns:
         dict containing permission metadata with field-id, perm-type, and permission-string-value
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_permission_metadata",
+        instance=instance,
+        status="started",
+        details={"locale": locale, "environment": environment},
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
         _validate_locale(locale)
         _validate_environment(environment)
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_permission_metadata",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     params = {"locale": locale}
-    return _make_sf_odata_request(instance, "/odata/v2/getPermissionMetadata", params, environment, auth_user_id, auth_password)
+    result = _make_sf_odata_request(instance, "/odata/v2/getPermissionMetadata", params, environment, auth_user_id, auth_password, request_id)
+
+    if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_permission_metadata",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+    else:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_permission_metadata",
+            instance=instance,
+            status="success",
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+
+    return result
 
 
 @mcp.tool()
@@ -494,6 +999,23 @@ def check_user_permission(
     Returns:
         dict containing boolean permission status (true/false)
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="check_user_permission",
+        instance=instance,
+        status="started",
+        details={
+            "access_user_id": access_user_id,
+            "target_user_id": target_user_id,
+            "perm_type": perm_type,
+            "environment": environment
+        },
+        request_id=request_id
+    )
+
     # Input validation
     try:
         _validate_identifier(instance, "instance")
@@ -502,6 +1024,15 @@ def check_user_permission(
         _validate_environment(environment)
         # perm_type and perm_string_value can have special chars like $ and _, so we sanitize instead
     except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="check_user_permission",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
         return {"error": str(e)}
 
     # Sanitize all string values for OData query to prevent injection
@@ -513,7 +1044,34 @@ def check_user_permission(
         "permLongValue": _sanitize_odata_string(perm_long_value),
         "$format": "json"
     }
-    return _make_sf_odata_request(instance, "/odata/v2/checkUserPermission", params, environment, auth_user_id, auth_password)
+    result = _make_sf_odata_request(instance, "/odata/v2/checkUserPermission", params, environment, auth_user_id, auth_password, request_id)
+
+    if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="check_user_permission",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+    else:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="check_user_permission",
+            instance=instance,
+            status="success",
+            details={
+                "access_user_id": access_user_id,
+                "target_user_id": target_user_id,
+                "perm_type": perm_type
+            },
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+
+    return result
 
 
 if __name__ == "__main__":
