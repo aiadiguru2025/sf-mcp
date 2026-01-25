@@ -1316,6 +1316,364 @@ def query_odata(
     return response_data
 
 
+@mcp.tool()
+def get_user_roles(
+    instance: str,
+    user_id: str,
+    include_permissions: bool = False,
+    environment: str = "preview",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    Get all RBP roles assigned to a specific user.
+
+    This tool complements get_user_permissions by showing which roles
+    are assigned to a user, not just the resulting permissions.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_id: The user ID to look up roles for
+        include_permissions: If True, also fetches permissions for each role
+        environment: API environment - 'preview' or 'production' (default: preview)
+        auth_user_id: Optional SF user ID for authentication
+        auth_password: Optional SF password for authentication
+
+    Returns:
+        dict containing:
+        - user_id: The queried user
+        - roles: List of roles with roleId, roleName, roleDesc
+        - role_count: Number of roles assigned
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_user_roles",
+        instance=instance,
+        status="started",
+        details={"user_id": user_id, "include_permissions": include_permissions},
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(user_id, "user_id")
+        _validate_environment(environment)
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_user_roles",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    # Query RBPBasicUserPermission to get role assignments for the user
+    safe_user_id = _sanitize_odata_string(user_id)
+    params = {
+        "$filter": f"userId eq '{safe_user_id}'",
+        "$format": "json"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/RBPBasicUserPermission", params,
+        environment, auth_user_id, auth_password, request_id
+    )
+
+    if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_user_roles",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return result
+
+    # Extract role information
+    roles = []
+    if "d" in result and "results" in result["d"]:
+        for entry in result["d"]["results"]:
+            role_info = {
+                "roleId": entry.get("roleId"),
+                "roleName": entry.get("roleName"),
+                "roleDesc": entry.get("roleDesc"),
+                "userType": entry.get("userType")
+            }
+            roles.append(role_info)
+
+    # Optionally fetch permissions for each role
+    if include_permissions and roles:
+        role_ids = ",".join(str(r["roleId"]) for r in roles if r["roleId"])
+        if role_ids:
+            perm_params = {
+                "locale": "en-US",
+                "roleIds": f"'{role_ids}'",
+                "$format": "json"
+            }
+            perm_result = _make_sf_odata_request(
+                instance, "/odata/v2/getRolesPermissions", perm_params,
+                environment, auth_user_id, auth_password, request_id
+            )
+            if "error" not in perm_result:
+                # Add permissions to response
+                for role in roles:
+                    role["permissions"] = perm_result
+
+    response_data = {
+        "user_id": user_id,
+        "roles": roles,
+        "role_count": len(roles)
+    }
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_user_roles",
+        instance=instance,
+        status="success",
+        details={"user_id": user_id, "role_count": len(roles)},
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def compare_configurations(
+    instance1: str,
+    instance2: str,
+    entity: str,
+    environment1: str = "preview",
+    environment2: str = "production",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    Compare entity configuration/metadata between two SuccessFactors instances.
+
+    This is useful for verifying that dev/test/production environments are aligned
+    before deployments, or for auditing configuration drift.
+
+    Args:
+        instance1: First SF instance/company ID (e.g., dev instance)
+        instance2: Second SF instance/company ID (e.g., prod instance)
+        entity: OData entity to compare (e.g., "User", "EmpEmployment", "Position")
+        environment1: API environment for instance1 (default: preview)
+        environment2: API environment for instance2 (default: production)
+        auth_user_id: Optional SF user ID for authentication (used for both)
+        auth_password: Optional SF password for authentication (used for both)
+
+    Returns:
+        dict containing:
+        - entity: The compared entity name
+        - instance1/instance2: Instance identifiers
+        - fields_only_in_instance1: Fields present only in first instance
+        - fields_only_in_instance2: Fields present only in second instance
+        - fields_in_both: Count of fields present in both
+        - type_differences: Fields with different types between instances
+        - match_percentage: Overall configuration match percentage
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="compare_configurations",
+        instance=f"{instance1} vs {instance2}",
+        status="started",
+        details={
+            "entity": entity,
+            "instance1": instance1,
+            "instance2": instance2,
+            "environment1": environment1,
+            "environment2": environment2
+        },
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance1, "instance1")
+        _validate_identifier(instance2, "instance2")
+        _validate_identifier(entity, "entity")
+        _validate_environment(environment1)
+        _validate_environment(environment2)
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="compare_configurations",
+            instance=f"{instance1} vs {instance2}",
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    user_id, password = _resolve_credentials(auth_user_id, auth_password)
+
+    if not user_id or not password:
+        _audit_log(
+            event_type="authentication",
+            tool_name="compare_configurations",
+            instance=f"{instance1} vs {instance2}",
+            status="failure",
+            details={"reason": "missing_credentials"},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters."}
+
+    def fetch_metadata(instance: str, environment: str) -> dict | None:
+        """Fetch and parse metadata for an instance."""
+        api_host = _get_api_host(environment)
+        username = f"{user_id}@{instance}"
+        url = f"https://{api_host}/odata/v2/{entity}/$metadata"
+
+        try:
+            response = requests.get(url, auth=(username, password), timeout=30)
+            if response.status_code != 200:
+                return None
+            return _xml_to_dict(response.text.encode("UTF-8"))
+        except Exception:
+            return None
+
+    def extract_fields(metadata: dict) -> dict[str, dict]:
+        """Extract field information from metadata."""
+        fields = {}
+        try:
+            # Navigate the metadata structure to find EntityType properties
+            if "edmx:Edmx" in metadata:
+                data_services = metadata["edmx:Edmx"].get("edmx:DataServices", {})
+            elif "Edmx" in metadata:
+                data_services = metadata["Edmx"].get("DataServices", {})
+            else:
+                return fields
+
+            schema = data_services.get("Schema", {})
+            if isinstance(schema, list):
+                schema = schema[0] if schema else {}
+
+            entity_types = schema.get("EntityType", [])
+            if not isinstance(entity_types, list):
+                entity_types = [entity_types]
+
+            for et in entity_types:
+                if et and isinstance(et, dict):
+                    props = et.get("Property", [])
+                    if not isinstance(props, list):
+                        props = [props]
+                    for prop in props:
+                        if prop and isinstance(prop, dict):
+                            name = prop.get("@Name", "")
+                            if name:
+                                fields[name] = {
+                                    "type": prop.get("@Type", "unknown"),
+                                    "nullable": prop.get("@Nullable", "true"),
+                                    "maxLength": prop.get("@MaxLength", "")
+                                }
+        except Exception:
+            pass
+        return fields
+
+    # Fetch metadata from both instances
+    metadata1 = fetch_metadata(instance1, environment1)
+    metadata2 = fetch_metadata(instance2, environment2)
+
+    if metadata1 is None:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="compare_configurations",
+            instance=f"{instance1} vs {instance2}",
+            status="error",
+            details={"error": f"Failed to fetch metadata from {instance1}"},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": f"Failed to fetch metadata from instance1 ({instance1})"}
+
+    if metadata2 is None:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="compare_configurations",
+            instance=f"{instance1} vs {instance2}",
+            status="error",
+            details={"error": f"Failed to fetch metadata from {instance2}"},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": f"Failed to fetch metadata from instance2 ({instance2})"}
+
+    # Extract fields from both
+    fields1 = extract_fields(metadata1)
+    fields2 = extract_fields(metadata2)
+
+    # Compare fields
+    fields1_names = set(fields1.keys())
+    fields2_names = set(fields2.keys())
+
+    only_in_1 = list(fields1_names - fields2_names)
+    only_in_2 = list(fields2_names - fields1_names)
+    in_both = fields1_names & fields2_names
+
+    # Check for type differences in common fields
+    type_differences = []
+    for field in in_both:
+        if fields1[field]["type"] != fields2[field]["type"]:
+            type_differences.append({
+                "field": field,
+                f"{instance1}_type": fields1[field]["type"],
+                f"{instance2}_type": fields2[field]["type"]
+            })
+
+    # Calculate match percentage
+    total_unique_fields = len(fields1_names | fields2_names)
+    matching_fields = len(in_both) - len(type_differences)
+    match_percentage = round((matching_fields / total_unique_fields * 100), 1) if total_unique_fields > 0 else 100
+
+    response_data = {
+        "entity": entity,
+        "instance1": {"name": instance1, "environment": environment1, "field_count": len(fields1)},
+        "instance2": {"name": instance2, "environment": environment2, "field_count": len(fields2)},
+        "comparison": {
+            "fields_only_in_instance1": sorted(only_in_1),
+            "fields_only_in_instance2": sorted(only_in_2),
+            "fields_in_both": len(in_both),
+            "type_differences": type_differences,
+            "match_percentage": match_percentage
+        },
+        "summary": {
+            "is_identical": len(only_in_1) == 0 and len(only_in_2) == 0 and len(type_differences) == 0,
+            "differences_found": len(only_in_1) + len(only_in_2) + len(type_differences)
+        }
+    }
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="compare_configurations",
+        instance=f"{instance1} vs {instance2}",
+        status="success",
+        details={
+            "entity": entity,
+            "match_percentage": match_percentage,
+            "differences_found": response_data["summary"]["differences_found"]
+        },
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
 if __name__ == "__main__":
     # Get port from environment (Cloud Run sets PORT)
     port = int(os.environ.get("PORT", 8080))
