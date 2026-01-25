@@ -1674,6 +1674,378 @@ def compare_configurations(
     return response_data
 
 
+@mcp.tool()
+def list_entities(
+    instance: str,
+    category: str | None = None,
+    environment: str = "preview",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    List all available OData entities in the SuccessFactors instance.
+
+    This discovery tool helps users understand what data is available to query.
+    It fetches the service document which lists all entity sets.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        category: Optional filter - 'foundation', 'employee', 'talent', 'platform', 'all' (default: all)
+        environment: API environment - 'preview' or 'production' (default: preview)
+        auth_user_id: Optional SF user ID for authentication
+        auth_password: Optional SF password for authentication
+
+    Returns:
+        dict containing:
+        - entities: List of entity names with their URLs
+        - count: Total number of entities
+        - categories: Grouped entities by common prefixes (if category='all')
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="list_entities",
+        instance=instance,
+        status="started",
+        details={"category": category, "environment": environment},
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_environment(environment)
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="list_entities",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    user_id, password = _resolve_credentials(auth_user_id, auth_password)
+    api_host = _get_api_host(environment)
+
+    if not user_id or not password:
+        _audit_log(
+            event_type="authentication",
+            tool_name="list_entities",
+            instance=instance,
+            status="failure",
+            details={"reason": "missing_credentials"},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters."}
+
+    username = f"{user_id}@{instance}"
+    url = f"https://{api_host}/odata/v2/"
+
+    try:
+        response = requests.get(
+            url,
+            auth=(username, password),
+            headers={"Accept": "application/json"},
+            timeout=30
+        )
+        duration_ms = (time.time() - start_time) * 1000
+
+        if response.status_code == 401:
+            _audit_log(
+                event_type="authentication",
+                tool_name="list_entities",
+                instance=instance,
+                status="failure",
+                details={"reason": "invalid_credentials", "http_status": 401},
+                request_id=request_id,
+                duration_ms=duration_ms
+            )
+            return {"error": "HTTP 401", "message": "Authentication failed. Check credentials."}
+
+        if response.status_code != 200:
+            _audit_log(
+                event_type="tool_invocation",
+                tool_name="list_entities",
+                instance=instance,
+                status="error",
+                details={"http_status": response.status_code},
+                request_id=request_id,
+                duration_ms=duration_ms
+            )
+            return {"error": f"HTTP {response.status_code}", "message": response.text[:500]}
+
+        data = response.json()
+
+        # Extract entity sets from the service document
+        entities = []
+        if "d" in data and "EntitySets" in data["d"]:
+            entity_sets = data["d"]["EntitySets"]
+            for entity_name in entity_sets:
+                entities.append(entity_name)
+
+        # Sort entities alphabetically
+        entities = sorted(entities)
+
+        # Categorize entities by common prefixes
+        categories_dict = {
+            "foundation": [],  # FOxxxx entities
+            "employee": [],    # Emp, Per, User entities
+            "talent": [],      # Goal, Performance, Learning entities
+            "platform": [],    # RBP, Picklist, Background entities
+            "other": []
+        }
+
+        for entity in entities:
+            entity_lower = entity.lower()
+            if entity.startswith("FO") or entity.startswith("fo"):
+                categories_dict["foundation"].append(entity)
+            elif any(entity_lower.startswith(p) for p in ["emp", "per", "user", "person"]):
+                categories_dict["employee"].append(entity)
+            elif any(entity_lower.startswith(p) for p in ["goal", "performance", "learning", "competency", "talent"]):
+                categories_dict["talent"].append(entity)
+            elif any(entity_lower.startswith(p) for p in ["rbp", "picklist", "background", "photo", "attachment"]):
+                categories_dict["platform"].append(entity)
+            else:
+                categories_dict["other"].append(entity)
+
+        # Filter by category if specified
+        if category and category.lower() != "all":
+            category_lower = category.lower()
+            if category_lower in categories_dict:
+                filtered_entities = categories_dict[category_lower]
+            else:
+                filtered_entities = entities
+        else:
+            filtered_entities = entities
+
+        response_data = {
+            "entities": filtered_entities,
+            "count": len(filtered_entities),
+            "total_available": len(entities)
+        }
+
+        if not category or category.lower() == "all":
+            response_data["by_category"] = {
+                "foundation": len(categories_dict["foundation"]),
+                "employee": len(categories_dict["employee"]),
+                "talent": len(categories_dict["talent"]),
+                "platform": len(categories_dict["platform"]),
+                "other": len(categories_dict["other"])
+            }
+
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="list_entities",
+            instance=instance,
+            status="success",
+            details={"entity_count": len(filtered_entities), "category": category},
+            request_id=request_id,
+            duration_ms=duration_ms
+        )
+
+        return response_data
+
+    except requests.exceptions.RequestException as e:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="list_entities",
+            instance=instance,
+            status="error",
+            details={"reason": "request_exception", "error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": f"Request failed: {str(e)}"}
+
+
+@mcp.tool()
+def get_picklist_values(
+    instance: str,
+    picklist_id: str,
+    locale: str = "en-US",
+    include_inactive: bool = False,
+    environment: str = "preview",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    Get all values for a specific picklist.
+
+    Picklists are used throughout SuccessFactors for dropdown fields.
+    This tool retrieves all options for a given picklist, which is essential
+    for data validation and understanding available field values.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        picklist_id: The picklist identifier (e.g., "ecJobFunction", "nationality")
+        locale: Locale for labels (default: en-US)
+        include_inactive: If True, includes inactive/expired values (default: False)
+        environment: API environment - 'preview' or 'production' (default: preview)
+        auth_user_id: Optional SF user ID for authentication
+        auth_password: Optional SF password for authentication
+
+    Returns:
+        dict containing:
+        - picklist_id: The queried picklist
+        - values: List of picklist options with id, label, externalCode
+        - count: Number of values
+        - has_inactive: Whether inactive values exist
+
+    Common picklists:
+        - ecJobFunction: Job functions
+        - ecJobCode: Job codes
+        - ecPayGrade: Pay grades
+        - ecDepartment: Departments
+        - nationality: Countries/nationalities
+        - maritalStatus: Marital status options
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_picklist_values",
+        instance=instance,
+        status="started",
+        details={
+            "picklist_id": picklist_id,
+            "locale": locale,
+            "include_inactive": include_inactive
+        },
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(picklist_id, "picklist_id")
+        _validate_locale(locale)
+        _validate_environment(environment)
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_picklist_values",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    # First, get the picklist metadata
+    safe_picklist_id = _sanitize_odata_string(picklist_id)
+    params = {
+        "$filter": f"PickListV2_id eq '{safe_picklist_id}'",
+        "$expand": "picklistLabels",
+        "$format": "json"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/PickListValueV2", params,
+        environment, auth_user_id, auth_password, request_id
+    )
+
+    if "error" in result:
+        # Try alternative endpoint (older PicklistOption)
+        params_alt = {
+            "$filter": f"picklistId eq '{safe_picklist_id}'",
+            "$format": "json"
+        }
+        result = _make_sf_odata_request(
+            instance, "/odata/v2/PicklistOption", params_alt,
+            environment, auth_user_id, auth_password, request_id
+        )
+
+        if "error" in result:
+            _audit_log(
+                event_type="tool_invocation",
+                tool_name="get_picklist_values",
+                instance=instance,
+                status="error",
+                details={"error": result.get("error"), "picklist_id": picklist_id},
+                request_id=request_id,
+                duration_ms=(time.time() - start_time) * 1000
+            )
+            return result
+
+    # Extract picklist values
+    values = []
+    inactive_count = 0
+
+    if "d" in result and "results" in result["d"]:
+        for entry in result["d"]["results"]:
+            # Check status for V2 format
+            status = entry.get("status", "A")
+            is_active = status in ["A", "active", None]
+
+            if not is_active:
+                inactive_count += 1
+                if not include_inactive:
+                    continue
+
+            # Extract label based on locale
+            label = entry.get("optionValue", "")
+            external_code = entry.get("externalCode", entry.get("optionId", ""))
+
+            # Try to get localized label from picklistLabels
+            picklist_labels = entry.get("picklistLabels", {})
+            if isinstance(picklist_labels, dict) and "results" in picklist_labels:
+                for lbl in picklist_labels["results"]:
+                    if lbl.get("locale") == locale:
+                        label = lbl.get("label", label)
+                        break
+
+            value_info = {
+                "id": entry.get("optionId", external_code),
+                "externalCode": external_code,
+                "label": label,
+                "status": "active" if is_active else "inactive"
+            }
+
+            # Add optional fields if present
+            if entry.get("parentPicklistValue"):
+                value_info["parentValue"] = entry.get("parentPicklistValue")
+            if entry.get("sortOrder"):
+                value_info["sortOrder"] = entry.get("sortOrder")
+
+            values.append(value_info)
+
+    # Sort by sortOrder if available, otherwise by label
+    values.sort(key=lambda x: (x.get("sortOrder", 999), x.get("label", "")))
+
+    response_data = {
+        "picklist_id": picklist_id,
+        "locale": locale,
+        "values": values,
+        "count": len(values),
+        "has_inactive": inactive_count > 0,
+        "inactive_count": inactive_count if include_inactive else None
+    }
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_picklist_values",
+        instance=instance,
+        status="success",
+        details={
+            "picklist_id": picklist_id,
+            "value_count": len(values),
+            "inactive_count": inactive_count
+        },
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
 if __name__ == "__main__":
     # Get port from environment (Cloud Run sets PORT)
     port = int(os.environ.get("PORT", 8080))
