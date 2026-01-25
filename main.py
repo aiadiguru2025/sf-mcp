@@ -1,13 +1,118 @@
 import os
+import re
 import asyncio
 from typing import Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 import requests
-import xmltodict
+import defusedxml.ElementTree as DefusedET
 
 # Load environment variables from .env file
 load_dotenv()
+
+
+# =============================================================================
+# SECURITY: Input Validation Functions
+# =============================================================================
+
+# Patterns for validating OData input parameters
+SAFE_IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]+$')
+SAFE_IDS_PATTERN = re.compile(r'^[a-zA-Z0-9_\-,]+$')
+SAFE_LOCALE_PATTERN = re.compile(r'^[a-zA-Z]{2}(-[a-zA-Z]{2})?$')
+VALID_ENVIRONMENTS = {"preview", "production"}
+
+
+def _validate_identifier(value: str, field_name: str) -> str:
+    """Validate that a value contains only safe identifier characters."""
+    if not value or not SAFE_IDENTIFIER_PATTERN.match(value):
+        raise ValueError(f"Invalid {field_name}: must contain only alphanumeric characters, underscores, and hyphens")
+    return value
+
+
+def _validate_ids(value: str, field_name: str) -> str:
+    """Validate comma-separated IDs contain only safe characters."""
+    if not value or not SAFE_IDS_PATTERN.match(value):
+        raise ValueError(f"Invalid {field_name}: must contain only alphanumeric characters, underscores, hyphens, and commas")
+    return value
+
+
+def _validate_locale(value: str) -> str:
+    """Validate locale format (e.g., 'en-US', 'de')."""
+    if not SAFE_LOCALE_PATTERN.match(value):
+        raise ValueError(f"Invalid locale format: {value}. Expected format like 'en-US' or 'en'")
+    return value
+
+
+def _validate_environment(value: str) -> str:
+    """Validate environment is one of the allowed values."""
+    if value not in VALID_ENVIRONMENTS:
+        raise ValueError(f"Invalid environment: {value}. Must be one of: {VALID_ENVIRONMENTS}")
+    return value
+
+
+def _sanitize_odata_string(value: str) -> str:
+    """Sanitize a string value for use in OData queries by escaping single quotes."""
+    # Escape single quotes by doubling them (OData standard)
+    return value.replace("'", "''")
+
+
+def _xml_to_dict(xml_content: bytes) -> dict:
+    """
+    Safely parse XML to dictionary using defusedxml to prevent XXE attacks.
+
+    Args:
+        xml_content: XML content as bytes
+
+    Returns:
+        Dictionary representation of the XML
+    """
+    def element_to_dict(element):
+        """Recursively convert an XML element to a dictionary."""
+        result = {}
+
+        # Add attributes with @ prefix
+        if element.attrib:
+            for key, value in element.attrib.items():
+                result[f"@{key}"] = value
+
+        # Process child elements
+        children = list(element)
+        if children:
+            child_dict = {}
+            for child in children:
+                child_data = element_to_dict(child)
+                tag = child.tag
+                # Handle namespace in tag
+                if '}' in tag:
+                    tag = tag.split('}')[1]
+
+                if tag in child_dict:
+                    # Convert to list if multiple children with same tag
+                    if not isinstance(child_dict[tag], list):
+                        child_dict[tag] = [child_dict[tag]]
+                    child_dict[tag].append(child_data if child_data else child.text)
+                else:
+                    child_dict[tag] = child_data if child_data else child.text
+            result.update(child_dict)
+        elif element.text and element.text.strip():
+            # If no children but has text content
+            if result:  # Has attributes
+                result['#text'] = element.text.strip()
+            else:
+                return element.text.strip()
+
+        return result if result else None
+
+    # Parse with defusedxml (prevents XXE, billion laughs, etc.)
+    root = DefusedET.fromstring(xml_content)
+
+    # Get root tag (handle namespace)
+    root_tag = root.tag
+    if '}' in root_tag:
+        root_tag = root_tag.split('}')[1]
+
+    return {root_tag: element_to_dict(root)}
+
 
 # API host configuration for different environments
 SF_API_HOSTS = {
@@ -104,6 +209,14 @@ def get_configuration(
         auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
         auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
     """
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(entity, "entity")
+        _validate_environment(environment)
+    except ValueError as e:
+        return {"error": str(e)}
+
     user_id, password = _resolve_credentials(auth_user_id, auth_password)
     api_host = _get_api_host(environment)
 
@@ -114,27 +227,26 @@ def get_configuration(
     apiUrl = f"https://{api_host}/odata/v2/{entity}/$metadata"
     credentials = (username, password)
 
-    meta_response = requests.get(apiUrl, auth=credentials)
+    meta_response = requests.get(apiUrl, auth=credentials, timeout=30)
 
     # Check if request was successful
     if meta_response.status_code != 200:
         return {
             "error": f"HTTP {meta_response.status_code}",
-            "message": meta_response.text[:500]
+            "message": "Request failed. Check instance and entity parameters."
         }
 
     # Check if response is empty
     if not meta_response.text.strip():
         return {"error": "Empty response from API"}
 
-    # Try to parse XML
+    # Try to parse XML safely (prevents XXE attacks)
     try:
-        meta_json = xmltodict.parse(meta_response.text.encode("UTF-8"))
+        meta_json = _xml_to_dict(meta_response.text.encode("UTF-8"))
         return meta_json
     except Exception as e:
         return {
-            "error": f"XML parse error: {str(e)}",
-            "response_preview": meta_response.text[:500]
+            "error": f"XML parse error: {str(e)}"
         }
 
 
@@ -159,6 +271,13 @@ def get_rbp_roles(
     Returns:
         dict containing list of roles with roleId, roleName, userType, lastModifiedDate
     """
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_environment(environment)
+    except ValueError as e:
+        return {"error": str(e)}
+
     select_fields = "roleId,roleName,userType,lastModifiedDate"
     if include_description:
         select_fields += ",roleDesc"
@@ -197,9 +316,20 @@ def get_dynamic_groups(
     Returns:
         dict containing list of dynamic groups
     """
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_environment(environment)
+        if group_type:
+            _validate_identifier(group_type, "group_type")
+    except ValueError as e:
+        return {"error": str(e)}
+
     params = {"$format": "json"}
     if group_type:
-        params["$filter"] = f"groupType eq '{group_type}'"
+        # Sanitize to prevent OData injection
+        safe_group_type = _sanitize_odata_string(group_type)
+        params["$filter"] = f"groupType eq '{safe_group_type}'"
 
     result = _make_sf_odata_request(instance, "/odata/v2/DynamicGroup", params, environment, auth_user_id, auth_password)
 
@@ -236,7 +366,18 @@ def get_role_permissions(
     Returns:
         dict containing role details and permissions
     """
-    params = {"locale": locale, "roleIds": f"'{role_ids}'", "$format": "json"}
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_ids(role_ids, "role_ids")
+        _validate_locale(locale)
+        _validate_environment(environment)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    # Sanitize role_ids for OData query
+    safe_role_ids = _sanitize_odata_string(role_ids)
+    params = {"locale": locale, "roleIds": f"'{safe_role_ids}'", "$format": "json"}
     result = _make_sf_odata_request(instance, "/odata/v2/getRolesPermissions", params, environment, auth_user_id, auth_password)
 
     if "error" in result:
@@ -268,7 +409,18 @@ def get_user_permissions(
     Returns:
         dict containing the users' effective permissions from all assigned roles
     """
-    params = {"locale": locale, "userIds": f"'{user_ids}'", "$format": "json"}
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_ids(user_ids, "user_ids")
+        _validate_locale(locale)
+        _validate_environment(environment)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    # Sanitize user_ids for OData query
+    safe_user_ids = _sanitize_odata_string(user_ids)
+    params = {"locale": locale, "userIds": f"'{safe_user_ids}'", "$format": "json"}
     result = _make_sf_odata_request(instance, "/odata/v2/getUsersPermissions", params, environment, auth_user_id, auth_password)
 
     if "error" in result:
@@ -301,6 +453,14 @@ def get_permission_metadata(
     Returns:
         dict containing permission metadata with field-id, perm-type, and permission-string-value
     """
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_locale(locale)
+        _validate_environment(environment)
+    except ValueError as e:
+        return {"error": str(e)}
+
     params = {"locale": locale}
     return _make_sf_odata_request(instance, "/odata/v2/getPermissionMetadata", params, environment, auth_user_id, auth_password)
 
@@ -334,12 +494,23 @@ def check_user_permission(
     Returns:
         dict containing boolean permission status (true/false)
     """
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(access_user_id, "access_user_id")
+        _validate_identifier(target_user_id, "target_user_id")
+        _validate_environment(environment)
+        # perm_type and perm_string_value can have special chars like $ and _, so we sanitize instead
+    except ValueError as e:
+        return {"error": str(e)}
+
+    # Sanitize all string values for OData query to prevent injection
     params = {
-        "accessUserId": f"'{access_user_id}'",
-        "targetUserId": f"'{target_user_id}'",
-        "permType": f"'{perm_type}'",
-        "permStringValue": f"'{perm_string_value}'",
-        "permLongValue": perm_long_value,
+        "accessUserId": f"'{_sanitize_odata_string(access_user_id)}'",
+        "targetUserId": f"'{_sanitize_odata_string(target_user_id)}'",
+        "permType": f"'{_sanitize_odata_string(perm_type)}'",
+        "permStringValue": f"'{_sanitize_odata_string(perm_string_value)}'",
+        "permLongValue": _sanitize_odata_string(perm_long_value),
         "$format": "json"
     }
     return _make_sf_odata_request(instance, "/odata/v2/checkUserPermission", params, environment, auth_user_id, auth_password)
