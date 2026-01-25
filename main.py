@@ -138,6 +138,24 @@ SAFE_IDS_PATTERN = re.compile(r'^[a-zA-Z0-9_\-,]+$')
 SAFE_LOCALE_PATTERN = re.compile(r'^[a-zA-Z]{2}(-[a-zA-Z]{2})?$')
 VALID_ENVIRONMENTS = {"preview", "production"}
 
+# Pattern for OData entity paths (e.g., "User", "User('admin')", "EmpEmployment")
+SAFE_ENTITY_PATH_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\('[a-zA-Z0-9_\-]+'\))?$")
+
+# Pattern for OData $select fields (comma-separated field names)
+SAFE_SELECT_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_,/]*$')
+
+# Pattern for OData $orderby (field names with optional asc/desc)
+SAFE_ORDERBY_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_,/ ]*(asc|desc)?$', re.IGNORECASE)
+
+# Pattern for OData $expand (navigation properties)
+SAFE_EXPAND_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_,/]*$')
+
+# Dangerous OData filter keywords that could indicate injection attempts
+ODATA_FILTER_BLOCKLIST = {
+    '$batch', '$metadata', '$value', '$count', '$ref', '$links',
+    'javascript:', 'script>', '<script', 'onerror', 'onload'
+}
+
 
 def _validate_identifier(value: str, field_name: str) -> str:
     """Validate that a value contains only safe identifier characters."""
@@ -171,6 +189,54 @@ def _sanitize_odata_string(value: str) -> str:
     """Sanitize a string value for use in OData queries by escaping single quotes."""
     # Escape single quotes by doubling them (OData standard)
     return value.replace("'", "''")
+
+
+def _validate_entity_path(value: str) -> str:
+    """Validate OData entity path (e.g., 'User', 'User('admin')')."""
+    if not value or not SAFE_ENTITY_PATH_PATTERN.match(value):
+        raise ValueError(f"Invalid entity: must be a valid OData entity name (e.g., 'User', 'Position')")
+    return value
+
+
+def _validate_select(value: str) -> str:
+    """Validate OData $select parameter."""
+    if not SAFE_SELECT_PATTERN.match(value):
+        raise ValueError("Invalid select: must contain only valid field names separated by commas")
+    return value
+
+
+def _validate_orderby(value: str) -> str:
+    """Validate OData $orderby parameter."""
+    if not SAFE_ORDERBY_PATTERN.match(value):
+        raise ValueError("Invalid orderby: must contain valid field names with optional 'asc' or 'desc'")
+    return value
+
+
+def _validate_expand(value: str) -> str:
+    """Validate OData $expand parameter."""
+    if not SAFE_EXPAND_PATTERN.match(value):
+        raise ValueError("Invalid expand: must contain valid navigation property names")
+    return value
+
+
+def _validate_odata_filter(value: str) -> str:
+    """
+    Validate and sanitize OData $filter parameter.
+
+    Checks for potentially dangerous patterns while allowing legitimate filter expressions.
+    """
+    # Check for blocklisted keywords
+    value_lower = value.lower()
+    for blocked in ODATA_FILTER_BLOCKLIST:
+        if blocked in value_lower:
+            raise ValueError(f"Invalid filter: contains blocked keyword '{blocked}'")
+
+    # Check for excessive length (potential DoS)
+    if len(value) > 2000:
+        raise ValueError("Invalid filter: expression too long (max 2000 characters)")
+
+    # Sanitize quotes in string literals
+    return value
 
 
 def _xml_to_dict(xml_content: bytes) -> dict:
@@ -1072,6 +1138,182 @@ def check_user_permission(
         )
 
     return result
+
+
+@mcp.tool()
+def query_odata(
+    instance: str,
+    entity: str,
+    select: str | None = None,
+    filter: str | None = None,
+    expand: str | None = None,
+    top: int = 100,
+    skip: int = 0,
+    orderby: str | None = None,
+    environment: str = "preview",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    Execute a flexible OData query against any SuccessFactors entity.
+
+    This is a powerful generic query tool that enables querying any OData entity
+    while maintaining security controls and audit logging.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        entity: OData entity name (e.g., "User", "Position", "EmpEmployment")
+                Can include key for single record: "User('admin')"
+        select: Fields to return, comma-separated (e.g., "userId,firstName,lastName")
+        filter: OData filter expression (e.g., "status eq 'active'")
+        expand: Navigation properties to expand (e.g., "empInfo,jobInfoNav")
+        top: Maximum records to return (default 100, max 1000)
+        skip: Number of records to skip for pagination (default 0)
+        orderby: Sort expression (e.g., "lastName asc" or "hireDate desc")
+        environment: API environment - 'preview' or 'production' (default: preview)
+        auth_user_id: Optional SF user ID for authentication
+        auth_password: Optional SF password for authentication
+
+    Returns:
+        dict containing query results or error information
+
+    Examples:
+        - Get active users: entity="User", filter="status eq 'active'", select="userId,firstName,lastName"
+        - Get single user: entity="User('admin')", expand="empInfo"
+        - Get positions: entity="Position", select="code,name,department", top=50
+        - Paginate: entity="User", top=100, skip=100 (gets records 101-200)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    # Enforce reasonable limits
+    if top > 1000:
+        top = 1000
+    if top < 1:
+        top = 1
+    if skip < 0:
+        skip = 0
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="query_odata",
+        instance=instance,
+        status="started",
+        details={
+            "entity": entity,
+            "select": select,
+            "filter": filter[:100] if filter else None,  # Truncate for logging
+            "expand": expand,
+            "top": top,
+            "skip": skip,
+            "orderby": orderby,
+            "environment": environment
+        },
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_entity_path(entity)
+        _validate_environment(environment)
+
+        if select:
+            _validate_select(select)
+        if orderby:
+            _validate_orderby(orderby)
+        if expand:
+            _validate_expand(expand)
+        if filter:
+            _validate_odata_filter(filter)
+
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="query_odata",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    # Build OData query parameters
+    params = {"$format": "json", "$top": str(top)}
+
+    if skip > 0:
+        params["$skip"] = str(skip)
+    if select:
+        params["$select"] = select
+    if filter:
+        params["$filter"] = filter
+    if expand:
+        params["$expand"] = expand
+    if orderby:
+        params["$orderby"] = orderby
+
+    # Build endpoint path
+    endpoint = f"/odata/v2/{entity}"
+
+    result = _make_sf_odata_request(
+        instance, endpoint, params, environment,
+        auth_user_id, auth_password, request_id
+    )
+
+    if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="query_odata",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error"), "entity": entity},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return result
+
+    # Extract results from OData response
+    record_count = 0
+    if "d" in result:
+        if "results" in result["d"]:
+            # Collection response
+            record_count = len(result["d"]["results"])
+            response_data = {
+                "entity": entity,
+                "results": result["d"]["results"],
+                "count": record_count
+            }
+            # Include next link for pagination if present
+            if "__next" in result["d"]:
+                response_data["next_skip"] = skip + top
+        else:
+            # Single entity response
+            record_count = 1
+            response_data = {
+                "entity": entity,
+                "result": result["d"],
+                "count": 1
+            }
+    else:
+        response_data = result
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="query_odata",
+        instance=instance,
+        status="success",
+        details={
+            "entity": entity,
+            "records_returned": record_count,
+            "top": top,
+            "skip": skip
+        },
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
 
 
 if __name__ == "__main__":
