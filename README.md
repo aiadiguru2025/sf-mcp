@@ -9,7 +9,11 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to query S
 ## Features
 
 - **get_configuration**: Retrieve metadata for any SuccessFactors OData entity
-- Automatic XML to JSON conversion
+- **get_rbp_roles**: List all Role-Based Permission roles
+- **get_role_permissions**: Get permissions assigned to a specific role
+- **get_dynamic_groups**: List permission groups (dynamic groups)
+- **get_user_permissions**: Get all permissions for a specific user
+- Automatic XML/JSON conversion
 - Error handling with detailed error messages
 
 ## Prerequisites
@@ -129,6 +133,108 @@ Returns a JSON object containing the parsed XML metadata, including:
 | `HTTP 404` | Entity not found |
 | `Empty response` | API returned no data |
 | `XML parse error` | Response was not valid XML |
+
+### get_rbp_roles
+
+Lists all RBP (Role-Based Permission) roles in the SuccessFactors instance.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | The SuccessFactors instance/company ID |
+| `include_description` | boolean | No | Include role descriptions (default: false) |
+
+**Example Usage in Claude:**
+
+```
+List all permission roles in instance "mycompany"
+```
+
+**Response:**
+
+Returns a JSON object with:
+- `roles`: Array of role objects (roleId, roleName, userType, lastModifiedDate)
+- `count`: Number of roles returned
+
+---
+
+### get_role_permissions
+
+Gets all permissions assigned to a specific RBP role.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | The SuccessFactors instance/company ID |
+| `role_id` | string | Yes | The unique identifier of the role |
+| `locale` | string | No | Locale for permission labels (default: en_US) |
+
+**Example Usage in Claude:**
+
+```
+Get all permissions for the "Administrator" role in instance "mycompany"
+```
+
+**Response:**
+
+Returns a JSON object with:
+- `role_id`: The requested role ID
+- `permissions`: Permission data with human-readable labels
+
+---
+
+### get_dynamic_groups
+
+Lists dynamic groups (permission groups) used in RBP rules for defining access and target populations.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | The SuccessFactors instance/company ID |
+| `group_type` | string | No | Optional filter for group type |
+
+**Example Usage in Claude:**
+
+```
+List all permission groups in instance "mycompany"
+```
+
+**Response:**
+
+Returns a JSON object with:
+- `groups`: Array of dynamic group objects
+- `count`: Number of groups returned
+
+---
+
+### get_user_permissions
+
+Gets all permissions for a specific user based on their assigned roles.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | The SuccessFactors instance/company ID |
+| `user_id` | string | Yes | The SuccessFactors user ID |
+| `locale` | string | No | Locale for permission labels (default: en_US) |
+
+**Example Usage in Claude:**
+
+```
+Get all permissions for user "admin" in instance "mycompany"
+```
+
+**Response:**
+
+Returns a JSON object with:
+- `user_id`: The requested user ID
+- `permissions`: User's effective permissions from all assigned roles
+
+---
 
 ## Common SuccessFactors Entities
 
