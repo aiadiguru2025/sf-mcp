@@ -1910,6 +1910,365 @@ def list_entities(
 
 
 @mcp.tool()
+def get_role_history(
+    instance: str,
+    role_id: str | None = None,
+    role_name: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    top: int = 100,
+    environment: str = "preview",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    Get modification history for RBP roles.
+
+    Returns who modified the role, when, and what changes were made.
+    This helps audit role configuration changes over time.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        role_id: Optional role ID to filter (e.g., "10")
+        role_name: Optional role name to filter (alternative to role_id)
+        from_date: Optional start date filter (ISO format: YYYY-MM-DD)
+        to_date: Optional end date filter (ISO format: YYYY-MM-DD)
+        top: Maximum records to return (default 100, max 500)
+        environment: API environment - 'preview' or 'production' (default: preview)
+        auth_user_id: Optional SF user ID for authentication
+        auth_password: Optional SF password for authentication
+
+    Returns:
+        dict containing:
+        - filters_applied: The filters used for the query
+        - history: List of role change records with modifiedBy, modifiedDate, roleId, roleName
+        - count: Number of records returned
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    # Enforce reasonable limits
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_role_history",
+        instance=instance,
+        status="started",
+        details={
+            "role_id": role_id,
+            "role_name": role_name,
+            "from_date": from_date,
+            "to_date": to_date,
+            "top": top
+        },
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_environment(environment)
+        if role_id:
+            _validate_identifier(role_id, "role_id")
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_role_history",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    # Build filter for RBPRole query with audit fields
+    filters = []
+    if role_id:
+        safe_role_id = _sanitize_odata_string(role_id)
+        filters.append(f"roleId eq {safe_role_id}")
+    if role_name:
+        safe_role_name = _sanitize_odata_string(role_name)
+        filters.append(f"roleName eq '{safe_role_name}'")
+    if from_date:
+        # OData datetime filter format
+        filters.append(f"lastModifiedDate ge datetime'{from_date}T00:00:00'")
+    if to_date:
+        filters.append(f"lastModifiedDate le datetime'{to_date}T23:59:59'")
+
+    # Query RBPRole with audit fields
+    params = {
+        "$select": "roleId,roleName,roleDesc,userType,lastModifiedBy,lastModifiedDate,createdBy,createdDate",
+        "$orderby": "lastModifiedDate desc",
+        "$top": str(top),
+        "$format": "json"
+    }
+
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/RBPRole", params,
+        environment, auth_user_id, auth_password, request_id
+    )
+
+    if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_role_history",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return result
+
+    # Process results
+    history = []
+    if "d" in result and "results" in result["d"]:
+        for entry in result["d"]["results"]:
+            # Parse SAP date format: /Date(timestamp)/
+            last_modified = entry.get("lastModifiedDate", "")
+            created_date = entry.get("createdDate", "")
+
+            # Convert SAP date format to ISO
+            def parse_sap_date(date_str: str) -> str:
+                if not date_str:
+                    return ""
+                # Format: /Date(1234567890000)/
+                match = re.search(r'/Date\((\d+)\)/', str(date_str))
+                if match:
+                    timestamp_ms = int(match.group(1))
+                    from datetime import datetime, timezone
+                    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+                    return dt.isoformat()
+                return str(date_str)
+
+            history_record = {
+                "role_id": entry.get("roleId"),
+                "role_name": entry.get("roleName"),
+                "role_description": entry.get("roleDesc"),
+                "user_type": entry.get("userType"),
+                "last_modified_by": entry.get("lastModifiedBy"),
+                "last_modified_date": parse_sap_date(last_modified),
+                "created_by": entry.get("createdBy"),
+                "created_date": parse_sap_date(created_date)
+            }
+            history.append(history_record)
+
+    # Build response
+    response_data = {
+        "filters_applied": {
+            "role_id": role_id,
+            "role_name": role_name,
+            "from_date": from_date,
+            "to_date": to_date
+        },
+        "history": history,
+        "count": len(history)
+    }
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_role_history",
+        instance=instance,
+        status="success",
+        details={"records_returned": len(history)},
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_role_assignment_history(
+    instance: str,
+    role_id: str | None = None,
+    user_id: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    top: int = 100,
+    environment: str = "preview",
+    auth_user_id: str | None = None,
+    auth_password: str | None = None
+) -> dict[str, Any]:
+    """
+    Get history of role assignments - who was granted roles and when.
+
+    This tool shows the assignment history of RBP roles to users,
+    helping audit who has been given access and by whom.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        role_id: Optional role ID to filter assignments for a specific role
+        user_id: Optional user ID to filter assignments for a specific user
+        from_date: Optional start date filter (ISO format: YYYY-MM-DD)
+        to_date: Optional end date filter (ISO format: YYYY-MM-DD)
+        top: Maximum records to return (default 100, max 500)
+        environment: API environment - 'preview' or 'production' (default: preview)
+        auth_user_id: Optional SF user ID for authentication
+        auth_password: Optional SF password for authentication
+
+    Returns:
+        dict containing:
+        - filters_applied: The filters used for the query
+        - assignments: List of role assignment records
+        - count: Number of records returned
+
+    Example:
+        - Get all assignments for a role: role_id="10"
+        - Get all roles for a user: user_id="admin"
+        - Audit recent assignments: from_date="2024-01-01"
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    # Enforce reasonable limits
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_role_assignment_history",
+        instance=instance,
+        status="started",
+        details={
+            "role_id": role_id,
+            "user_id": user_id,
+            "from_date": from_date,
+            "to_date": to_date,
+            "top": top
+        },
+        request_id=request_id
+    )
+
+    # Input validation
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_environment(environment)
+        if role_id:
+            _validate_identifier(role_id, "role_id")
+        if user_id:
+            _validate_identifier(user_id, "user_id")
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            tool_name="get_role_assignment_history",
+            instance=instance,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return {"error": str(e)}
+
+    # Build filter for RBPBasicUserPermission query
+    filters = []
+    if role_id:
+        safe_role_id = _sanitize_odata_string(role_id)
+        filters.append(f"roleId eq {safe_role_id}")
+    if user_id:
+        safe_user_id = _sanitize_odata_string(user_id)
+        filters.append(f"userId eq '{safe_user_id}'")
+    if from_date:
+        filters.append(f"lastModifiedDate ge datetime'{from_date}T00:00:00'")
+    if to_date:
+        filters.append(f"lastModifiedDate le datetime'{to_date}T23:59:59'")
+
+    # Query RBPBasicUserPermission for assignment records
+    params = {
+        "$select": "userId,roleId,roleName,roleDesc,userType,lastModifiedBy,lastModifiedDate,createdBy,createdDate",
+        "$orderby": "lastModifiedDate desc",
+        "$top": str(top),
+        "$format": "json"
+    }
+
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/RBPBasicUserPermission", params,
+        environment, auth_user_id, auth_password, request_id
+    )
+
+    if "error" in result:
+        _audit_log(
+            event_type="tool_invocation",
+            tool_name="get_role_assignment_history",
+            instance=instance,
+            status="error",
+            details={"error": result.get("error")},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        return result
+
+    # Process results
+    assignments = []
+    if "d" in result and "results" in result["d"]:
+        for entry in result["d"]["results"]:
+            # Parse SAP date format
+            last_modified = entry.get("lastModifiedDate", "")
+            created_date = entry.get("createdDate", "")
+
+            def parse_sap_date(date_str: str) -> str:
+                if not date_str:
+                    return ""
+                match = re.search(r'/Date\((\d+)\)/', str(date_str))
+                if match:
+                    timestamp_ms = int(match.group(1))
+                    from datetime import datetime, timezone
+                    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+                    return dt.isoformat()
+                return str(date_str)
+
+            assignment_record = {
+                "user_id": entry.get("userId"),
+                "role_id": entry.get("roleId"),
+                "role_name": entry.get("roleName"),
+                "role_description": entry.get("roleDesc"),
+                "user_type": entry.get("userType"),
+                "assigned_by": entry.get("createdBy"),
+                "assigned_date": parse_sap_date(created_date),
+                "last_modified_by": entry.get("lastModifiedBy"),
+                "last_modified_date": parse_sap_date(last_modified)
+            }
+            assignments.append(assignment_record)
+
+    # Build response
+    response_data = {
+        "filters_applied": {
+            "role_id": role_id,
+            "user_id": user_id,
+            "from_date": from_date,
+            "to_date": to_date
+        },
+        "assignments": assignments,
+        "count": len(assignments)
+    }
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_role_assignment_history",
+        instance=instance,
+        status="success",
+        details={"records_returned": len(assignments)},
+        request_id=request_id,
+        duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
 def get_picklist_values(
     instance: str,
     picklist_id: str,

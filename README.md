@@ -1,6 +1,6 @@
 # SF-MCP: SAP SuccessFactors MCP Server
 
-A secure Model Context Protocol (MCP) server providing 12 tools for querying and managing SAP SuccessFactors via OData APIs.
+A secure Model Context Protocol (MCP) server providing 14 tools for querying and managing SAP SuccessFactors via OData APIs.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 ## Features
 
-### Tools (12 total)
+### Tools (14 total)
 
 | Category | Tool | Description |
 |----------|------|-------------|
@@ -22,6 +22,8 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 | **RBP Security** | `get_permission_metadata` | Map UI labels to permission types |
 | **RBP Security** | `check_user_permission` | Check if user has specific permission |
 | **RBP Security** | `get_dynamic_groups` | List permission groups (dynamic groups) |
+| **RBP Audit** | `get_role_history` | View modification history for roles |
+| **RBP Audit** | `get_role_assignment_history` | View history of role assignments |
 | **Data Query** | `query_odata` | Flexible OData queries with filtering |
 | **Data Validation** | `get_picklist_values` | Get dropdown/picklist options |
 
@@ -327,6 +329,104 @@ Lists dynamic groups (permission groups) used in RBP rules.
 
 ---
 
+### RBP Audit Tools
+
+#### get_role_history
+
+View modification history for RBP roles - who changed what and when.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `role_id` | string | No | Filter by specific role ID |
+| `role_name` | string | No | Filter by role name (alternative to role_id) |
+| `from_date` | string | No | Start date filter (YYYY-MM-DD) |
+| `to_date` | string | No | End date filter (YYYY-MM-DD) |
+| `top` | integer | No | Max records (default: 100, max: 500) |
+| `environment` | string | No | "preview" or "production" (default: preview) |
+| `auth_user_id` | string | No | Override default credentials |
+| `auth_password` | string | No | Override default credentials |
+
+**Response:**
+```json
+{
+  "filters_applied": {
+    "role_id": "10",
+    "from_date": "2024-01-01"
+  },
+  "history": [
+    {
+      "role_id": "10",
+      "role_name": "HR Manager",
+      "role_description": "Human Resources management role",
+      "user_type": "employee",
+      "last_modified_by": "admin",
+      "last_modified_date": "2024-03-15T10:30:00+00:00",
+      "created_by": "admin",
+      "created_date": "2023-01-01T09:00:00+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+#### get_role_assignment_history
+
+View history of role assignments - who was granted roles and when.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `role_id` | string | No | Filter assignments for a specific role |
+| `user_id` | string | No | Filter assignments for a specific user |
+| `from_date` | string | No | Start date filter (YYYY-MM-DD) |
+| `to_date` | string | No | End date filter (YYYY-MM-DD) |
+| `top` | integer | No | Max records (default: 100, max: 500) |
+| `environment` | string | No | "preview" or "production" (default: preview) |
+| `auth_user_id` | string | No | Override default credentials |
+| `auth_password` | string | No | Override default credentials |
+
+**Examples:**
+```
+# Get all assignments for a role
+role_id="10"
+
+# Get all roles assigned to a user
+user_id="admin"
+
+# Audit recent assignments
+from_date="2024-01-01", to_date="2024-12-31"
+```
+
+**Response:**
+```json
+{
+  "filters_applied": {
+    "role_id": "10",
+    "user_id": null,
+    "from_date": "2024-01-01"
+  },
+  "assignments": [
+    {
+      "user_id": "emp001",
+      "role_id": "10",
+      "role_name": "HR Manager",
+      "role_description": "Human Resources management role",
+      "user_type": "employee",
+      "assigned_by": "admin",
+      "assigned_date": "2024-02-01T14:00:00+00:00",
+      "last_modified_by": "admin",
+      "last_modified_date": "2024-02-01T14:00:00+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
 ### Data Query Tools
 
 #### query_odata
@@ -486,7 +586,7 @@ curl http://localhost:8080/mcp
 
 ```
 sf-mcp/
-├── main.py              # MCP server with 12 tools
+├── main.py              # MCP server with 14 tools
 ├── pyproject.toml       # Project dependencies
 ├── uv.lock              # Dependency lock file
 ├── Dockerfile           # Container image for Cloud Run
