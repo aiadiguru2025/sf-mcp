@@ -312,13 +312,11 @@ def _get_api_host(environment: str = "preview") -> str:
 
 
 def _resolve_credentials(
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
-) -> tuple[str | None, str | None]:
-    """Resolve credentials from parameters or fall back to environment variables."""
-    resolved_user_id = auth_user_id if auth_user_id else os.environ.get("SF_USER_ID")
-    resolved_password = auth_password if auth_password else os.environ.get("SF_PASSWORD")
-    return resolved_user_id, resolved_password
+    auth_user_id: str,
+    auth_password: str
+) -> tuple[str, str]:
+    """Return credentials provided by caller. Credentials are required on every tool call."""
+    return auth_user_id, auth_password
 
 
 # =============================================================================
@@ -373,8 +371,8 @@ def _make_sf_odata_request(
     endpoint: str,
     params: dict | None = None,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None,
+    auth_user_id: str = "",
+    auth_password: str = "",
     request_id: str | None = None
 ) -> dict[str, Any]:
     """
@@ -385,8 +383,8 @@ def _make_sf_odata_request(
         endpoint: The OData endpoint path (e.g., "/odata/v2/RBPRole")
         params: Optional query parameters
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
         request_id: Optional request ID for tracing
 
     Returns:
@@ -406,7 +404,7 @@ def _make_sf_odata_request(
             details={"reason": "missing_credentials", "endpoint": endpoint},
             request_id=req_id
         )
-        return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters, or set SF_USER_ID and SF_PASSWORD environment variables."}
+        return {"error": "Missing credentials. auth_user_id and auth_password parameters are required."}
 
     username = f"{user_id}@{instance}"
     url = f"https://{api_host}{endpoint}"
@@ -501,8 +499,8 @@ def get_configuration(
     instance: str,
     entity: str,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get Configuration metadata details for the entity within the instance.
@@ -511,8 +509,8 @@ def get_configuration(
         instance: The SuccessFactors instance/company ID
         entity: The OData entity name (e.g., "User", "EmpEmployment")
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
     """
     request_id = str(uuid.uuid4())[:8]
     start_time = time.time()
@@ -556,7 +554,7 @@ def get_configuration(
             request_id=request_id,
             duration_ms=(time.time() - start_time) * 1000
         )
-        return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters, or set SF_USER_ID and SF_PASSWORD environment variables."}
+        return {"error": "Missing credentials. auth_user_id and auth_password parameters are required."}
 
     username = f"{user_id}@{instance}"
     apiUrl = f"https://{api_host}/odata/v2/{entity}/$metadata"
@@ -654,8 +652,8 @@ def get_rbp_roles(
     instance: str,
     include_description: bool = False,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get all RBP (Role-Based Permission) roles in the SuccessFactors instance.
@@ -664,8 +662,8 @@ def get_rbp_roles(
         instance: The SuccessFactors instance/company ID
         include_description: If True, includes role descriptions
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing list of roles with roleId, roleName, userType, lastModifiedDate
@@ -747,8 +745,8 @@ def get_dynamic_groups(
     instance: str,
     group_type: str | None = None,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get dynamic groups (permission groups) used in RBP rules.
@@ -757,8 +755,8 @@ def get_dynamic_groups(
         instance: The SuccessFactors instance/company ID
         group_type: Optional filter for group type
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing list of dynamic groups
@@ -844,8 +842,8 @@ def get_role_permissions(
     role_ids: str,
     locale: str = "en-US",
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get all permissions assigned to one or more RBP roles.
@@ -855,8 +853,8 @@ def get_role_permissions(
         role_ids: Role ID(s) - single ID ("10") or comma-separated ("10,20,30")
         locale: Locale for permission labels (default: en-US)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing role details and permissions
@@ -926,8 +924,8 @@ def get_user_permissions(
     user_ids: str,
     locale: str = "en-US",
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get all permissions for one or more users based on their assigned roles.
@@ -937,8 +935,8 @@ def get_user_permissions(
         user_ids: User ID(s) - single ID ("admin") or comma-separated ("admin,user2,user3")
         locale: Locale for permission labels (default: en-US)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing the users' effective permissions from all assigned roles
@@ -1007,8 +1005,8 @@ def get_permission_metadata(
     instance: str,
     locale: str = "en-US",
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get permission metadata mapping UI labels to permission types and values.
@@ -1020,8 +1018,8 @@ def get_permission_metadata(
         instance: The SuccessFactors instance/company ID
         locale: Locale for permission labels (default: en-US)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing permission metadata with field-id, perm-type, and permission-string-value
@@ -1090,8 +1088,8 @@ def check_user_permission(
     perm_string_value: str,
     perm_long_value: str = "-1L",
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Check if a user has a specific permission for a target user.
@@ -1104,8 +1102,8 @@ def check_user_permission(
         perm_string_value: Permission identifier (e.g., "$_payrollIntegration_view")
         perm_long_value: Long value representation (default: "-1L")
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication (falls back to SF_USER_ID env var)
-        auth_password: Optional SF password for authentication (falls back to SF_PASSWORD env var)
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing boolean permission status (true/false)
@@ -1196,8 +1194,8 @@ def query_odata(
     skip: int = 0,
     orderby: str | None = None,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Execute a flexible OData query against any SuccessFactors entity.
@@ -1216,8 +1214,8 @@ def query_odata(
         skip: Number of records to skip for pagination (default 0)
         orderby: Sort expression (e.g., "lastName asc" or "hireDate desc")
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication
-        auth_password: Optional SF password for authentication
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing query results or error information
@@ -1367,8 +1365,8 @@ def get_user_roles(
     user_id: str,
     include_permissions: bool = False,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get all RBP roles assigned to a specific user.
@@ -1381,8 +1379,8 @@ def get_user_roles(
         user_id: The user ID to look up roles for
         include_permissions: If True, also fetches permissions for each role
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication
-        auth_password: Optional SF password for authentication
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:
@@ -1499,8 +1497,8 @@ def compare_configurations(
     entity: str,
     environment1: str = "preview",
     environment2: str = "production",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Compare entity configuration/metadata between two SuccessFactors instances.
@@ -1514,8 +1512,8 @@ def compare_configurations(
         entity: OData entity to compare (e.g., "User", "EmpEmployment", "Position")
         environment1: API environment for instance1 (default: preview)
         environment2: API environment for instance2 (default: production)
-        auth_user_id: Optional SF user ID for authentication (used for both)
-        auth_password: Optional SF password for authentication (used for both)
+        auth_user_id: SuccessFactors user ID for authentication (required, used for both instances)
+        auth_password: SuccessFactors password for authentication (required, used for both instances)
 
     Returns:
         dict containing:
@@ -1576,7 +1574,7 @@ def compare_configurations(
             request_id=request_id,
             duration_ms=(time.time() - start_time) * 1000
         )
-        return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters."}
+        return {"error": "Missing credentials. auth_user_id and auth_password parameters are required."}
 
     def fetch_metadata(instance: str, environment: str) -> dict | None:
         """Fetch and parse metadata for an instance."""
@@ -1724,8 +1722,8 @@ def list_entities(
     instance: str,
     category: str | None = None,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     List all available OData entities in the SuccessFactors instance.
@@ -1737,8 +1735,8 @@ def list_entities(
         instance: The SuccessFactors instance/company ID
         category: Optional filter - 'foundation', 'employee', 'talent', 'platform', 'all' (default: all)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication
-        auth_password: Optional SF password for authentication
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:
@@ -1787,7 +1785,7 @@ def list_entities(
             request_id=request_id,
             duration_ms=(time.time() - start_time) * 1000
         )
-        return {"error": "Missing credentials. Provide auth_user_id and auth_password parameters."}
+        return {"error": "Missing credentials. auth_user_id and auth_password parameters are required."}
 
     username = f"{user_id}@{instance}"
     url = f"https://{api_host}/odata/v2/"
@@ -1918,8 +1916,8 @@ def get_role_history(
     to_date: str | None = None,
     top: int = 100,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get modification history for RBP roles.
@@ -1935,8 +1933,8 @@ def get_role_history(
         to_date: Optional end date filter (ISO format: YYYY-MM-DD)
         top: Maximum records to return (default 100, max 500)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication
-        auth_password: Optional SF password for authentication
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:
@@ -2095,8 +2093,8 @@ def get_role_assignment_history(
     to_date: str | None = None,
     top: int = 100,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get history of role assignments - who was granted roles and when.
@@ -2112,8 +2110,8 @@ def get_role_assignment_history(
         to_date: Optional end date filter (ISO format: YYYY-MM-DD)
         top: Maximum records to return (default 100, max 500)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication
-        auth_password: Optional SF password for authentication
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:
@@ -2275,8 +2273,8 @@ def get_picklist_values(
     locale: str = "en-US",
     include_inactive: bool = False,
     environment: str = "preview",
-    auth_user_id: str | None = None,
-    auth_password: str | None = None
+    auth_user_id: str,
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get all values for a specific picklist.
@@ -2291,8 +2289,8 @@ def get_picklist_values(
         locale: Locale for labels (default: en-US)
         include_inactive: If True, includes inactive/expired values (default: False)
         environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: Optional SF user ID for authentication
-        auth_password: Optional SF password for authentication
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:

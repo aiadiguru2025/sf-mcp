@@ -32,8 +32,7 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 - **Input Validation**: Regex-based validation prevents OData injection attacks
 - **XXE Protection**: Uses `defusedxml` library for safe XML parsing
 - **Audit Logging**: JSON-structured logs compatible with Cloud Logging
-- **Secret Manager**: GCP Secret Manager integration for credential storage
-- **Credential Flexibility**: Pass credentials per-request or use environment defaults
+- **Per-Request Authentication**: Credentials required on every tool call (no stored defaults)
 
 ## Prerequisites
 
@@ -51,21 +50,17 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
    uv sync
    ```
 
-3. **Configure credentials**
+3. **Authentication**
 
-   Credentials can be provided in three ways (in order of precedence):
+   Credentials must be provided as parameters on each tool call:
+   - `auth_user_id`: Your SuccessFactors user ID (without @instance)
+   - `auth_password`: Your SuccessFactors password
 
-   1. **Per-request parameters**: `auth_user_id` and `auth_password` on each tool call
-   2. **Environment variables**: `SF_USER_ID` and `SF_PASSWORD`
-   3. **GCP Secret Manager**: Secrets named `sf-user-id` and `sf-password`
+   **Note:** Credentials are not stored in environment variables. Each MCP client is responsible for securely managing and providing credentials per request.
 
    | Variable | Required | Description |
    |----------|----------|-------------|
-   | `SF_USER_ID` | Yes* | Your SuccessFactors user ID (without @instance) |
-   | `SF_PASSWORD` | Yes* | Your SuccessFactors password |
    | `SF_API_HOST` | No | API host (defaults to `api55preview.sapsf.eu`) |
-
-   *Required unless using per-request credentials or Secret Manager
 
 ## Usage
 
@@ -100,15 +95,13 @@ Add to your Claude Desktop configuration:
         "/path/to/sf-mcp",
         "run",
         "main.py"
-      ],
-      "env": {
-        "SF_USER_ID": "your_user_id",
-        "SF_PASSWORD": "your_password"
-      }
+      ]
     }
   }
 }
 ```
+
+**Note:** Credentials (`auth_user_id` and `auth_password`) must be provided on each tool call.
 
 For Cloud Run deployment:
 ```json
@@ -136,8 +129,8 @@ Retrieves OData metadata for a specified SuccessFactors entity.
 | `instance` | string | Yes | SuccessFactors company ID |
 | `entity` | string | Yes | OData entity name (e.g., "User", "Position") |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Example:**
 ```
@@ -155,8 +148,8 @@ Discover all available OData entities in an instance.
 | `instance` | string | Yes | SuccessFactors company ID |
 | `category` | string | No | Filter: "foundation", "employee", "talent", "platform", or "all" |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Response:**
 ```json
@@ -187,8 +180,8 @@ Compare entity configuration between two instances (e.g., dev vs prod).
 | `entity` | string | Yes | Entity to compare |
 | `environment1` | string | No | Environment for instance1 (default: preview) |
 | `environment2` | string | No | Environment for instance2 (default: production) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Response:**
 ```json
@@ -221,8 +214,8 @@ Lists all Role-Based Permission roles.
 | `instance` | string | Yes | SuccessFactors company ID |
 | `include_description` | boolean | No | Include role descriptions (default: false) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 ---
 
@@ -236,8 +229,8 @@ Gets permissions assigned to specific RBP roles. Supports multiple role IDs.
 | `role_ids` | string | Yes | Single ID or comma-separated: "10" or "10,20,30" |
 | `locale` | string | No | Locale for labels (default: en-US) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 ---
 
@@ -251,8 +244,8 @@ Gets all permissions for specific users based on their assigned roles.
 | `user_ids` | string | Yes | Single ID or comma-separated: "admin" or "admin,user2" |
 | `locale` | string | No | Locale for labels (default: en-US) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 ---
 
@@ -266,8 +259,8 @@ Gets all RBP roles assigned to a specific user.
 | `user_id` | string | Yes | User ID to look up roles for |
 | `include_permissions` | boolean | No | Also fetch permissions for each role (default: false) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Response:**
 ```json
@@ -292,8 +285,8 @@ Maps UI labels to permission types and values.
 | `instance` | string | Yes | SuccessFactors company ID |
 | `locale` | string | No | Locale for labels (default: en-US) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 ---
 
@@ -310,8 +303,8 @@ Check if a user has a specific permission for a target user.
 | `perm_string_value` | string | Yes | Permission string value |
 | `perm_long_value` | string | No | Permission long value (default: -1L) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 ---
 
@@ -324,8 +317,8 @@ Lists dynamic groups (permission groups) used in RBP rules.
 | `instance` | string | Yes | SuccessFactors company ID |
 | `group_type` | string | No | Filter by group type |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 ---
 
@@ -344,8 +337,8 @@ View modification history for RBP roles - who changed what and when.
 | `to_date` | string | No | End date filter (YYYY-MM-DD) |
 | `top` | integer | No | Max records (default: 100, max: 500) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Response:**
 ```json
@@ -385,8 +378,8 @@ View history of role assignments - who was granted roles and when.
 | `to_date` | string | No | End date filter (YYYY-MM-DD) |
 | `top` | integer | No | Max records (default: 100, max: 500) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Examples:**
 ```
@@ -444,8 +437,8 @@ Execute flexible OData queries against any SuccessFactors entity.
 | `skip` | integer | No | Records to skip for pagination |
 | `orderby` | string | No | Sort: "lastName asc" or "hireDate desc" |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Examples:**
 ```
@@ -484,8 +477,8 @@ Get all values for a specific picklist (dropdown options).
 | `locale` | string | No | Locale for labels (default: en-US) |
 | `include_inactive` | boolean | No | Include inactive values (default: false) |
 | `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | No | Override default credentials |
-| `auth_password` | string | No | Override default credentials |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Common Picklists:**
 - `ecJobFunction` - Job functions
@@ -532,7 +525,7 @@ Use `list_entities` to discover all available entities in your instance.
 - Google Cloud account with billing enabled
 - [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed
 
-### Deploy with Secret Manager (Recommended)
+### Deploy to Cloud Run
 
 ```bash
 # Set project
@@ -540,29 +533,17 @@ export PROJECT_ID=your-gcp-project-id
 gcloud config set project $PROJECT_ID
 
 # Enable required APIs
-gcloud services enable secretmanager.googleapis.com run.googleapis.com
-
-# Create secrets
-echo -n "your_user_id" | gcloud secrets create sf-user-id --data-file=-
-echo -n "your_password" | gcloud secrets create sf-password --data-file=-
-
-# Grant access to Cloud Run service account
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-gcloud secrets add-iam-policy-binding sf-user-id \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
-gcloud secrets add-iam-policy-binding sf-password \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+gcloud services enable run.googleapis.com
 
 # Build and deploy
 gcloud builds submit --tag gcr.io/$PROJECT_ID/sf-mcp
 gcloud run deploy sf-mcp \
   --image gcr.io/$PROJECT_ID/sf-mcp \
   --platform managed \
-  --region us-central1 \
-  --set-env-vars "GCP_PROJECT_ID=$PROJECT_ID"
+  --region us-central1
 ```
+
+**Note:** Credentials are provided on each tool call by the MCP client, not stored in the deployment.
 
 ### Local Testing with Docker
 
@@ -571,14 +552,13 @@ gcloud run deploy sf-mcp \
 docker build -t sf-mcp .
 
 # Run locally
-docker run -p 8080:8080 \
-  -e SF_USER_ID=your_user \
-  -e SF_PASSWORD=your_pass \
-  sf-mcp
+docker run -p 8080:8080 sf-mcp
 
 # Test endpoint
 curl http://localhost:8080/mcp
 ```
+
+**Note:** Credentials are provided on each tool call, not as Docker environment variables.
 
 ---
 
@@ -634,8 +614,8 @@ The server validates all inputs to prevent injection attacks. If you see validat
 - **Input Validation**: All parameters validated with regex patterns
 - **XXE Protection**: XML parsing uses defusedxml library
 - **Audit Logging**: All tool invocations logged in JSON format
-- **Secret Manager**: Production credentials stored in GCP Secret Manager
-- **No Hardcoded Secrets**: Credentials from environment or parameters only
+- **Per-Request Authentication**: Credentials required on each tool call (no stored defaults)
+- **Credential Masking**: Sensitive fields automatically masked in logs
 - **Minimal Permissions**: Use dedicated API user with required permissions only
 
 ---
