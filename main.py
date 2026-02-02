@@ -138,7 +138,6 @@ def _audit_log(
 SAFE_IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]+$')
 SAFE_IDS_PATTERN = re.compile(r'^[a-zA-Z0-9_\-,]+$')
 SAFE_LOCALE_PATTERN = re.compile(r'^[a-zA-Z]{2}(-[a-zA-Z]{2})?$')
-VALID_ENVIRONMENTS = {"preview", "production"}
 
 # Pattern for OData entity paths (e.g., "User", "User('admin')", "EmpEmployment")
 SAFE_ENTITY_PATH_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\('[a-zA-Z0-9_\-]+'\))?$")
@@ -157,6 +156,152 @@ ODATA_FILTER_BLOCKLIST = {
     '$batch', '$metadata', '$value', '$count', '$ref', '$links',
     'javascript:', 'script>', '<script', 'onerror', 'onload'
 }
+
+# =============================================================================
+# Data Center to API Host Mapping (from SAP official documentation)
+# =============================================================================
+# Format: {(data_center, environment): api_host}
+# Includes both primary data centers and their "New Data Center" aliases
+
+DC_API_HOST_MAP = {
+    # DC10 / DC66 - Sydney, Australia (Azure)
+    ("DC10", "production"): "api10.successfactors.com",
+    ("DC10", "preview"): "api10preview.sapsf.com",
+    ("DC66", "production"): "api10.successfactors.com",
+    ("DC66", "preview"): "api10preview.sapsf.com",
+
+    # DC12 / DC33 - Rot, Germany
+    ("DC12", "production"): "api012.successfactors.eu",
+    ("DC12", "preview"): "api12preview.sapsf.eu",
+    ("DC33", "production"): "api012.successfactors.eu",
+    ("DC33", "preview"): "api12preview.sapsf.eu",
+
+    # DC15 / DC30 - Shanghai, China
+    ("DC15", "production"): "api15.sapsf.cn",
+    ("DC15", "preview"): "api15preview.sapsf.cn",
+    ("DC30", "production"): "api15.sapsf.cn",
+    ("DC30", "preview"): "api15preview.sapsf.cn",
+
+    # DC17 / DC60 - Toronto, Canada (Azure)
+    ("DC17", "production"): "api17.sapsf.com",
+    ("DC17", "preview"): "api17preview.sapsf.com",
+    ("DC60", "production"): "api17.sapsf.com",
+    ("DC60", "preview"): "api17preview.sapsf.com",
+
+    # DC19 / DC62 - Sao Paulo, Brazil (Azure)
+    ("DC19", "production"): "api19.sapsf.com",
+    ("DC19", "preview"): "api19preview.sapsf.com",
+    ("DC62", "production"): "api19.sapsf.com",
+    ("DC62", "preview"): "api19preview.sapsf.com",
+
+    # DC2 / DC57 - Eemshaven, Netherlands (GCP)
+    ("DC2", "production"): "api2.successfactors.eu",
+    ("DC2", "preview"): "api2preview.sapsf.eu",
+    ("DC2", "sales_demo"): "apisalesdemo2.successfactors.eu",
+    ("DC57", "production"): "api2.successfactors.eu",
+    ("DC57", "preview"): "api2preview.sapsf.eu",
+    ("DC57", "sales_demo"): "apisalesdemo2.successfactors.eu",
+
+    # DC22 - Dubai, UAE
+    ("DC22", "production"): "api22.sapsf.com",
+    ("DC22", "preview"): "api22preview.sapsf.com",
+
+    # DC23 / DC84 - Riyadh, Saudi Arabia
+    ("DC23", "production"): "api23.sapsf.com",
+    ("DC23", "preview"): "api23preview.sapsf.com",
+    ("DC84", "production"): "api23.sapsf.com",
+    ("DC84", "preview"): "api23preview.sapsf.com",
+
+    # DC4 / DC68 - Virginia, US (Azure)
+    ("DC4", "production"): "api4.successfactors.com",
+    ("DC4", "preview"): "api4preview.sapsf.com",
+    ("DC4", "sales_demo"): "api68sales.successfactors.com",
+    ("DC68", "production"): "api4.successfactors.com",
+    ("DC68", "preview"): "api4preview.sapsf.com",
+    ("DC68", "sales_demo"): "api68sales.successfactors.com",
+
+    # DC40 - Sales Demo (Azure)
+    ("DC40", "sales_demo"): "api40sales.sapsf.com",
+
+    # DC41 - Virginia, US (Azure)
+    ("DC41", "production"): "api41.sapsf.com",
+    ("DC41", "preview"): "api41preview.sapsf.com",
+
+    # DC44 / DC52 - Singapore (GCP)
+    ("DC44", "production"): "api44.sapsf.com",
+    ("DC44", "preview"): "api44preview.sapsf.com",
+    ("DC52", "production"): "api44.sapsf.com",
+    ("DC52", "preview"): "api44preview.sapsf.com",
+
+    # DC47 - Canada Central (Azure)
+    ("DC47", "production"): "api47.sapsf.com",
+    ("DC47", "preview"): "api47preview.sapsf.com",
+
+    # DC50 - Tokyo, Japan (GCP)
+    ("DC50", "production"): "api50.sapsf.com",
+    ("DC50", "preview"): "api50preview.sapsf.com",
+
+    # DC55 - Frankfurt, Germany (GCP)
+    ("DC55", "production"): "api55.sapsf.eu",
+    ("DC55", "preview"): "api55preview.sapsf.eu",
+
+    # DC74 - Zurich, Switzerland (Azure)
+    ("DC74", "production"): "api74.sapsf.eu",
+    ("DC74", "preview"): "api74preview.sapsf.eu",
+
+    # DC8 / DC70 - Ashburn, Virginia, US (Azure)
+    ("DC8", "production"): "api8.successfactors.com",
+    ("DC8", "preview"): "api8preview.sapsf.com",
+    ("DC8", "sales_demo"): "apisalesdemo8.successfactors.com",
+    ("DC70", "production"): "api8.successfactors.com",
+    ("DC70", "preview"): "api8preview.sapsf.com",
+    ("DC70", "sales_demo"): "apisalesdemo8.successfactors.com",
+
+    # DC80 - Mumbai, India (GCP)
+    ("DC80", "production"): "api-in10.hr.cloud.sap",
+    ("DC80", "preview"): "api-in10-preview.hr.cloud.sap",
+
+    # DC82 - Riyadh, Saudi Arabia (GCP)
+    ("DC82", "production"): "api-sa20.hr.cloud.sap",
+    ("DC82", "preview"): "api-sa20-preview.hr.cloud.sap",
+}
+
+# Extract valid data centers and environments from the map
+VALID_DATA_CENTERS = set(dc for dc, _ in DC_API_HOST_MAP.keys())
+VALID_ENVIRONMENTS = {"production", "preview", "sales_demo"}
+
+
+def _get_api_host(data_center: str, environment: str) -> str:
+    """
+    Map data center and environment to API host.
+
+    Args:
+        data_center: SAP data center code (e.g., "DC55", "DC10")
+        environment: Environment type ("preview", "production", "sales_demo")
+
+    Returns:
+        API host string (without https:// prefix)
+
+    Raises:
+        ValueError: If invalid data_center or environment, or combination not available
+    """
+    dc_upper = data_center.upper()
+    env_lower = environment.lower()
+
+    if dc_upper not in VALID_DATA_CENTERS:
+        valid_dcs = ", ".join(sorted(VALID_DATA_CENTERS, key=lambda x: (int(x[2:]) if x[2:].isdigit() else 999, x)))
+        raise ValueError(f"Invalid data_center '{data_center}'. Valid options: {valid_dcs}")
+
+    if env_lower not in VALID_ENVIRONMENTS:
+        raise ValueError(f"Invalid environment '{environment}'. Valid options: production, preview, sales_demo")
+
+    key = (dc_upper, env_lower)
+    if key not in DC_API_HOST_MAP:
+        # Find available environments for this DC
+        available_envs = [env for (dc, env) in DC_API_HOST_MAP.keys() if dc == dc_upper]
+        raise ValueError(f"Environment '{environment}' not available for {data_center}. Available: {', '.join(available_envs)}")
+
+    return DC_API_HOST_MAP[key]
 
 
 def _validate_identifier(value: str, field_name: str) -> str:
@@ -177,13 +322,6 @@ def _validate_locale(value: str) -> str:
     """Validate locale format (e.g., 'en-US', 'de')."""
     if not SAFE_LOCALE_PATTERN.match(value):
         raise ValueError(f"Invalid locale format: {value}. Expected format like 'en-US' or 'en'")
-    return value
-
-
-def _validate_environment(value: str) -> str:
-    """Validate environment is one of the allowed values."""
-    if value not in VALID_ENVIRONMENTS:
-        raise ValueError(f"Invalid environment: {value}. Must be one of: {VALID_ENVIRONMENTS}")
     return value
 
 
@@ -299,18 +437,6 @@ def _xml_to_dict(xml_content: bytes) -> dict:
     return {root_tag: element_to_dict(root)}
 
 
-# API host configuration for different environments
-SF_API_HOSTS = {
-    "production": "api55.sapsf.eu",
-    "preview": "api55preview.sapsf.eu"
-}
-
-
-def _get_api_host(environment: str = "preview") -> str:
-    """Return the appropriate API host based on environment."""
-    return SF_API_HOSTS.get(environment, SF_API_HOSTS["preview"])
-
-
 def _resolve_credentials(
     auth_user_id: str,
     auth_password: str
@@ -369,10 +495,11 @@ mcp = FastMCP("SFgetConfig")
 def _make_sf_odata_request(
     instance: str,
     endpoint: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
     params: dict | None = None,
-    environment: str = "preview",
-    auth_user_id: str = "",
-    auth_password: str = "",
     request_id: str | None = None
 ) -> dict[str, Any]:
     """
@@ -381,10 +508,11 @@ def _make_sf_odata_request(
     Args:
         instance: The SuccessFactors instance/company ID
         endpoint: The OData endpoint path (e.g., "/odata/v2/RBPRole")
-        params: Optional query parameters
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        params: Optional query parameters
         request_id: Optional request ID for tracing
 
     Returns:
@@ -393,8 +521,20 @@ def _make_sf_odata_request(
     req_id = request_id or str(uuid.uuid4())[:8]
     start_time = time.time()
 
+    # Resolve API host from data center and environment
+    try:
+        api_host = _get_api_host(data_center, environment)
+    except ValueError as e:
+        _audit_log(
+            event_type="validation_error",
+            instance=instance,
+            status="failure",
+            details={"reason": "invalid_data_center_or_environment", "error": str(e)},
+            request_id=req_id
+        )
+        return {"error": str(e)}
+
     user_id, password = _resolve_credentials(auth_user_id, auth_password)
-    api_host = _get_api_host(environment)
 
     if not user_id or not password:
         _audit_log(
@@ -498,9 +638,10 @@ def _make_sf_odata_request(
 def get_configuration(
     instance: str,
     entity: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
-    auth_password: str,
-    environment: str = "preview"
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Get Configuration metadata details for the entity within the instance.
@@ -508,7 +649,8 @@ def get_configuration(
     Args:
         instance: The SuccessFactors instance/company ID
         entity: The OData entity name (e.g., "User", "EmpEmployment")
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
     """
@@ -520,7 +662,7 @@ def get_configuration(
         tool_name="get_configuration",
         instance=instance,
         status="started",
-        details={"entity": entity, "environment": environment},
+        details={"entity": entity, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
@@ -528,7 +670,7 @@ def get_configuration(
     try:
         _validate_identifier(instance, "instance")
         _validate_identifier(entity, "entity")
-        _validate_environment(environment)
+        api_host = _get_api_host(data_center, environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -542,7 +684,6 @@ def get_configuration(
         return {"error": str(e)}
 
     user_id, password = _resolve_credentials(auth_user_id, auth_password)
-    api_host = _get_api_host(environment)
 
     if not user_id or not password:
         _audit_log(
@@ -650,20 +791,22 @@ def get_configuration(
 @mcp.tool()
 def get_rbp_roles(
     instance: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    include_description: bool = False,
-    environment: str = "preview"
+    include_description: bool = False
 ) -> dict[str, Any]:
     """
     Get all RBP (Role-Based Permission) roles in the SuccessFactors instance.
 
     Args:
         instance: The SuccessFactors instance/company ID
-        include_description: If True, includes role descriptions
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        include_description: If True, includes role descriptions
 
     Returns:
         dict containing list of roles with roleId, roleName, userType, lastModifiedDate
@@ -676,14 +819,13 @@ def get_rbp_roles(
         tool_name="get_rbp_roles",
         instance=instance,
         status="started",
-        details={"include_description": include_description, "environment": environment},
+        details={"include_description": include_description, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
     # Input validation
     try:
         _validate_identifier(instance, "instance")
-        _validate_environment(environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -701,7 +843,7 @@ def get_rbp_roles(
         select_fields += ",roleDesc"
 
     params = {"$select": select_fields, "$format": "json"}
-    result = _make_sf_odata_request(instance, "/odata/v2/RBPRole", params, environment, auth_user_id, auth_password, request_id)
+    result = _make_sf_odata_request(instance, "/odata/v2/RBPRole", data_center, environment, auth_user_id, auth_password, params, request_id)
 
     if "error" in result:
         _audit_log(
@@ -743,20 +885,22 @@ def get_rbp_roles(
 @mcp.tool()
 def get_dynamic_groups(
     instance: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    group_type: str | None = None,
-    environment: str = "preview"
+    group_type: str | None = None
 ) -> dict[str, Any]:
     """
     Get dynamic groups (permission groups) used in RBP rules.
 
     Args:
         instance: The SuccessFactors instance/company ID
-        group_type: Optional filter for group type
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        group_type: Optional filter for group type
 
     Returns:
         dict containing list of dynamic groups
@@ -769,14 +913,13 @@ def get_dynamic_groups(
         tool_name="get_dynamic_groups",
         instance=instance,
         status="started",
-        details={"group_type": group_type, "environment": environment},
+        details={"group_type": group_type, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
     # Input validation
     try:
         _validate_identifier(instance, "instance")
-        _validate_environment(environment)
         if group_type:
             _validate_identifier(group_type, "group_type")
     except ValueError as e:
@@ -797,7 +940,7 @@ def get_dynamic_groups(
         safe_group_type = _sanitize_odata_string(group_type)
         params["$filter"] = f"groupType eq '{safe_group_type}'"
 
-    result = _make_sf_odata_request(instance, "/odata/v2/DynamicGroup", params, environment, auth_user_id, auth_password, request_id)
+    result = _make_sf_odata_request(instance, "/odata/v2/DynamicGroup", data_center, environment, auth_user_id, auth_password, params, request_id)
 
     if "error" in result:
         _audit_log(
@@ -840,10 +983,11 @@ def get_dynamic_groups(
 def get_role_permissions(
     instance: str,
     role_ids: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    locale: str = "en-US",
-    environment: str = "preview"
+    locale: str = "en-US"
 ) -> dict[str, Any]:
     """
     Get all permissions assigned to one or more RBP roles.
@@ -851,10 +995,11 @@ def get_role_permissions(
     Args:
         instance: The SuccessFactors instance/company ID
         role_ids: Role ID(s) - single ID ("10") or comma-separated ("10,20,30")
-        locale: Locale for permission labels (default: en-US)
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        locale: Locale for permission labels (default: en-US)
 
     Returns:
         dict containing role details and permissions
@@ -867,7 +1012,7 @@ def get_role_permissions(
         tool_name="get_role_permissions",
         instance=instance,
         status="started",
-        details={"role_ids": role_ids, "locale": locale, "environment": environment},
+        details={"role_ids": role_ids, "locale": locale, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
@@ -876,7 +1021,6 @@ def get_role_permissions(
         _validate_identifier(instance, "instance")
         _validate_ids(role_ids, "role_ids")
         _validate_locale(locale)
-        _validate_environment(environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -892,7 +1036,7 @@ def get_role_permissions(
     # Sanitize role_ids for OData query
     safe_role_ids = _sanitize_odata_string(role_ids)
     params = {"locale": locale, "roleIds": f"'{safe_role_ids}'", "$format": "json"}
-    result = _make_sf_odata_request(instance, "/odata/v2/getRolesPermissions", params, environment, auth_user_id, auth_password, request_id)
+    result = _make_sf_odata_request(instance, "/odata/v2/getRolesPermissions", data_center, environment, auth_user_id, auth_password, params, request_id)
 
     if "error" in result:
         _audit_log(
@@ -922,10 +1066,11 @@ def get_role_permissions(
 def get_user_permissions(
     instance: str,
     user_ids: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    locale: str = "en-US",
-    environment: str = "preview"
+    locale: str = "en-US"
 ) -> dict[str, Any]:
     """
     Get all permissions for one or more users based on their assigned roles.
@@ -933,10 +1078,11 @@ def get_user_permissions(
     Args:
         instance: The SuccessFactors instance/company ID
         user_ids: User ID(s) - single ID ("admin") or comma-separated ("admin,user2,user3")
-        locale: Locale for permission labels (default: en-US)
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        locale: Locale for permission labels (default: en-US)
 
     Returns:
         dict containing the users' effective permissions from all assigned roles
@@ -949,7 +1095,7 @@ def get_user_permissions(
         tool_name="get_user_permissions",
         instance=instance,
         status="started",
-        details={"user_ids_count": len(user_ids.split(",")), "locale": locale, "environment": environment},
+        details={"user_ids_count": len(user_ids.split(",")), "locale": locale, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
@@ -958,7 +1104,6 @@ def get_user_permissions(
         _validate_identifier(instance, "instance")
         _validate_ids(user_ids, "user_ids")
         _validate_locale(locale)
-        _validate_environment(environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -974,7 +1119,7 @@ def get_user_permissions(
     # Sanitize user_ids for OData query
     safe_user_ids = _sanitize_odata_string(user_ids)
     params = {"locale": locale, "userIds": f"'{safe_user_ids}'", "$format": "json"}
-    result = _make_sf_odata_request(instance, "/odata/v2/getUsersPermissions", params, environment, auth_user_id, auth_password, request_id)
+    result = _make_sf_odata_request(instance, "/odata/v2/getUsersPermissions", data_center, environment, auth_user_id, auth_password, params, request_id)
 
     if "error" in result:
         _audit_log(
@@ -1003,10 +1148,11 @@ def get_user_permissions(
 @mcp.tool()
 def get_permission_metadata(
     instance: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    locale: str = "en-US",
-    environment: str = "preview"
+    locale: str = "en-US"
 ) -> dict[str, Any]:
     """
     Get permission metadata mapping UI labels to permission types and values.
@@ -1016,10 +1162,11 @@ def get_permission_metadata(
 
     Args:
         instance: The SuccessFactors instance/company ID
-        locale: Locale for permission labels (default: en-US)
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        locale: Locale for permission labels (default: en-US)
 
     Returns:
         dict containing permission metadata with field-id, perm-type, and permission-string-value
@@ -1032,7 +1179,7 @@ def get_permission_metadata(
         tool_name="get_permission_metadata",
         instance=instance,
         status="started",
-        details={"locale": locale, "environment": environment},
+        details={"locale": locale, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
@@ -1040,7 +1187,6 @@ def get_permission_metadata(
     try:
         _validate_identifier(instance, "instance")
         _validate_locale(locale)
-        _validate_environment(environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -1054,7 +1200,7 @@ def get_permission_metadata(
         return {"error": str(e)}
 
     params = {"locale": locale}
-    result = _make_sf_odata_request(instance, "/odata/v2/getPermissionMetadata", params, environment, auth_user_id, auth_password, request_id)
+    result = _make_sf_odata_request(instance, "/odata/v2/getPermissionMetadata", data_center, environment, auth_user_id, auth_password, params, request_id)
 
     if "error" in result:
         _audit_log(
@@ -1086,10 +1232,11 @@ def check_user_permission(
     target_user_id: str,
     perm_type: str,
     perm_string_value: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    perm_long_value: str = "-1L",
-    environment: str = "preview"
+    perm_long_value: str = "-1L"
 ) -> dict[str, Any]:
     """
     Check if a user has a specific permission for a target user.
@@ -1100,10 +1247,11 @@ def check_user_permission(
         target_user_id: The user whose data access is being verified
         perm_type: Permission category (e.g., "EmployeeFilesViews_type")
         perm_string_value: Permission identifier (e.g., "$_payrollIntegration_view")
-        perm_long_value: Long value representation (default: "-1L")
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        perm_long_value: Long value representation (default: "-1L")
 
     Returns:
         dict containing boolean permission status (true/false)
@@ -1120,6 +1268,7 @@ def check_user_permission(
             "access_user_id": access_user_id,
             "target_user_id": target_user_id,
             "perm_type": perm_type,
+            "data_center": data_center,
             "environment": environment
         },
         request_id=request_id
@@ -1130,7 +1279,6 @@ def check_user_permission(
         _validate_identifier(instance, "instance")
         _validate_identifier(access_user_id, "access_user_id")
         _validate_identifier(target_user_id, "target_user_id")
-        _validate_environment(environment)
         # perm_type and perm_string_value can have special chars like $ and _, so we sanitize instead
     except ValueError as e:
         _audit_log(
@@ -1153,7 +1301,7 @@ def check_user_permission(
         "permLongValue": _sanitize_odata_string(perm_long_value),
         "$format": "json"
     }
-    result = _make_sf_odata_request(instance, "/odata/v2/checkUserPermission", params, environment, auth_user_id, auth_password, request_id)
+    result = _make_sf_odata_request(instance, "/odata/v2/checkUserPermission", data_center, environment, auth_user_id, auth_password, params, request_id)
 
     if "error" in result:
         _audit_log(
@@ -1187,6 +1335,8 @@ def check_user_permission(
 def query_odata(
     instance: str,
     entity: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
     select: str | None = None,
@@ -1194,8 +1344,7 @@ def query_odata(
     expand: str | None = None,
     top: int = 100,
     skip: int = 0,
-    orderby: str | None = None,
-    environment: str = "preview"
+    orderby: str | None = None
 ) -> dict[str, Any]:
     """
     Execute a flexible OData query against any SuccessFactors entity.
@@ -1207,15 +1356,16 @@ def query_odata(
         instance: The SuccessFactors instance/company ID
         entity: OData entity name (e.g., "User", "Position", "EmpEmployment")
                 Can include key for single record: "User('admin')"
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
         select: Fields to return, comma-separated (e.g., "userId,firstName,lastName")
         filter: OData filter expression (e.g., "status eq 'active'")
         expand: Navigation properties to expand (e.g., "empInfo,jobInfoNav")
         top: Maximum records to return (default 100, max 1000)
         skip: Number of records to skip for pagination (default 0)
         orderby: Sort expression (e.g., "lastName asc" or "hireDate desc")
-        environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: SuccessFactors user ID for authentication (required)
-        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing query results or error information
@@ -1250,6 +1400,7 @@ def query_odata(
             "top": top,
             "skip": skip,
             "orderby": orderby,
+            "data_center": data_center,
             "environment": environment
         },
         request_id=request_id
@@ -1259,7 +1410,6 @@ def query_odata(
     try:
         _validate_identifier(instance, "instance")
         _validate_entity_path(entity)
-        _validate_environment(environment)
 
         if select:
             _validate_select(select)
@@ -1300,8 +1450,8 @@ def query_odata(
     endpoint = f"/odata/v2/{entity}"
 
     result = _make_sf_odata_request(
-        instance, endpoint, params, environment,
-        auth_user_id, auth_password, request_id
+        instance, endpoint, data_center, environment,
+        auth_user_id, auth_password, params, request_id
     )
 
     if "error" in result:
@@ -1363,10 +1513,11 @@ def query_odata(
 def get_user_roles(
     instance: str,
     user_id: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    include_permissions: bool = False,
-    environment: str = "preview"
+    include_permissions: bool = False
 ) -> dict[str, Any]:
     """
     Get all RBP roles assigned to a specific user.
@@ -1377,10 +1528,11 @@ def get_user_roles(
     Args:
         instance: The SuccessFactors instance/company ID
         user_id: The user ID to look up roles for
-        include_permissions: If True, also fetches permissions for each role
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        include_permissions: If True, also fetches permissions for each role
 
     Returns:
         dict containing:
@@ -1396,7 +1548,7 @@ def get_user_roles(
         tool_name="get_user_roles",
         instance=instance,
         status="started",
-        details={"user_id": user_id, "include_permissions": include_permissions},
+        details={"user_id": user_id, "include_permissions": include_permissions, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
@@ -1404,7 +1556,6 @@ def get_user_roles(
     try:
         _validate_identifier(instance, "instance")
         _validate_identifier(user_id, "user_id")
-        _validate_environment(environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -1425,8 +1576,8 @@ def get_user_roles(
     }
 
     result = _make_sf_odata_request(
-        instance, "/odata/v2/RBPBasicUserPermission", params,
-        environment, auth_user_id, auth_password, request_id
+        instance, "/odata/v2/RBPBasicUserPermission", data_center, environment,
+        auth_user_id, auth_password, params, request_id
     )
 
     if "error" in result:
@@ -1463,8 +1614,8 @@ def get_user_roles(
                 "$format": "json"
             }
             perm_result = _make_sf_odata_request(
-                instance, "/odata/v2/getRolesPermissions", perm_params,
-                environment, auth_user_id, auth_password, request_id
+                instance, "/odata/v2/getRolesPermissions", data_center, environment,
+                auth_user_id, auth_password, perm_params, request_id
             )
             if "error" not in perm_result:
                 # Add permissions to response
@@ -1495,10 +1646,12 @@ def compare_configurations(
     instance1: str,
     instance2: str,
     entity: str,
+    data_center1: str,
+    environment1: str,
+    data_center2: str,
+    environment2: str,
     auth_user_id: str,
-    auth_password: str,
-    environment1: str = "preview",
-    environment2: str = "production"
+    auth_password: str
 ) -> dict[str, Any]:
     """
     Compare entity configuration/metadata between two SuccessFactors instances.
@@ -1510,8 +1663,10 @@ def compare_configurations(
         instance1: First SF instance/company ID (e.g., dev instance)
         instance2: Second SF instance/company ID (e.g., prod instance)
         entity: OData entity to compare (e.g., "User", "EmpEmployment", "Position")
-        environment1: API environment for instance1 (default: preview)
-        environment2: API environment for instance2 (default: production)
+        data_center1: SAP data center for instance1 (e.g., 'DC55')
+        environment1: Environment for instance1 ('preview', 'production')
+        data_center2: SAP data center for instance2 (e.g., 'DC55')
+        environment2: Environment for instance2 ('preview', 'production')
         auth_user_id: SuccessFactors user ID for authentication (required, used for both instances)
         auth_password: SuccessFactors password for authentication (required, used for both instances)
 
@@ -1537,19 +1692,21 @@ def compare_configurations(
             "entity": entity,
             "instance1": instance1,
             "instance2": instance2,
+            "data_center1": data_center1,
             "environment1": environment1,
+            "data_center2": data_center2,
             "environment2": environment2
         },
         request_id=request_id
     )
 
-    # Input validation
+    # Input validation and get API hosts
     try:
         _validate_identifier(instance1, "instance1")
         _validate_identifier(instance2, "instance2")
         _validate_identifier(entity, "entity")
-        _validate_environment(environment1)
-        _validate_environment(environment2)
+        api_host1 = _get_api_host(data_center1, environment1)
+        api_host2 = _get_api_host(data_center2, environment2)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -1576,9 +1733,8 @@ def compare_configurations(
         )
         return {"error": "Missing credentials. auth_user_id and auth_password parameters are required."}
 
-    def fetch_metadata(instance: str, environment: str) -> dict | None:
+    def fetch_metadata(instance: str, api_host: str) -> dict | None:
         """Fetch and parse metadata for an instance."""
-        api_host = _get_api_host(environment)
         username = f"{user_id}@{instance}"
         url = f"https://{api_host}/odata/v2/{entity}/$metadata"
 
@@ -1629,8 +1785,8 @@ def compare_configurations(
         return fields
 
     # Fetch metadata from both instances
-    metadata1 = fetch_metadata(instance1, environment1)
-    metadata2 = fetch_metadata(instance2, environment2)
+    metadata1 = fetch_metadata(instance1, api_host1)
+    metadata2 = fetch_metadata(instance2, api_host2)
 
     if metadata1 is None:
         _audit_log(
@@ -1685,8 +1841,8 @@ def compare_configurations(
 
     response_data = {
         "entity": entity,
-        "instance1": {"name": instance1, "environment": environment1, "field_count": len(fields1)},
-        "instance2": {"name": instance2, "environment": environment2, "field_count": len(fields2)},
+        "instance1": {"name": instance1, "data_center": data_center1, "environment": environment1, "field_count": len(fields1)},
+        "instance2": {"name": instance2, "data_center": data_center2, "environment": environment2, "field_count": len(fields2)},
         "comparison": {
             "fields_only_in_instance1": sorted(only_in_1),
             "fields_only_in_instance2": sorted(only_in_2),
@@ -1720,10 +1876,11 @@ def compare_configurations(
 @mcp.tool()
 def list_entities(
     instance: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
-    category: str | None = None,
-    environment: str = "preview"
+    category: str | None = None
 ) -> dict[str, Any]:
     """
     List all available OData entities in the SuccessFactors instance.
@@ -1733,10 +1890,11 @@ def list_entities(
 
     Args:
         instance: The SuccessFactors instance/company ID
-        category: Optional filter - 'foundation', 'employee', 'talent', 'platform', 'all' (default: all)
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        category: Optional filter - 'foundation', 'employee', 'talent', 'platform', 'all' (default: all)
 
     Returns:
         dict containing:
@@ -1752,14 +1910,14 @@ def list_entities(
         tool_name="list_entities",
         instance=instance,
         status="started",
-        details={"category": category, "environment": environment},
+        details={"category": category, "data_center": data_center, "environment": environment},
         request_id=request_id
     )
 
-    # Input validation
+    # Input validation and get API host
     try:
         _validate_identifier(instance, "instance")
-        _validate_environment(environment)
+        api_host = _get_api_host(data_center, environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -1773,7 +1931,6 @@ def list_entities(
         return {"error": str(e)}
 
     user_id, password = _resolve_credentials(auth_user_id, auth_password)
-    api_host = _get_api_host(environment)
 
     if not user_id or not password:
         _audit_log(
@@ -1910,14 +2067,15 @@ def list_entities(
 @mcp.tool()
 def get_role_history(
     instance: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
     role_id: str | None = None,
     role_name: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
-    top: int = 100,
-    environment: str = "preview"
+    top: int = 100
 ) -> dict[str, Any]:
     """
     Get modification history for RBP roles.
@@ -1927,14 +2085,15 @@ def get_role_history(
 
     Args:
         instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
         role_id: Optional role ID to filter (e.g., "10")
         role_name: Optional role name to filter (alternative to role_id)
         from_date: Optional start date filter (ISO format: YYYY-MM-DD)
         to_date: Optional end date filter (ISO format: YYYY-MM-DD)
         top: Maximum records to return (default 100, max 500)
-        environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: SuccessFactors user ID for authentication (required)
-        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:
@@ -1961,7 +2120,9 @@ def get_role_history(
             "role_name": role_name,
             "from_date": from_date,
             "to_date": to_date,
-            "top": top
+            "top": top,
+            "data_center": data_center,
+            "environment": environment
         },
         request_id=request_id
     )
@@ -1969,7 +2130,6 @@ def get_role_history(
     # Input validation
     try:
         _validate_identifier(instance, "instance")
-        _validate_environment(environment)
         if role_id:
             _validate_identifier(role_id, "role_id")
     except ValueError as e:
@@ -2010,8 +2170,8 @@ def get_role_history(
         params["$filter"] = " and ".join(filters)
 
     result = _make_sf_odata_request(
-        instance, "/odata/v2/RBPRole", params,
-        environment, auth_user_id, auth_password, request_id
+        instance, "/odata/v2/RBPRole", data_center, environment,
+        auth_user_id, auth_password, params, request_id
     )
 
     if "error" in result:
@@ -2087,14 +2247,15 @@ def get_role_history(
 @mcp.tool()
 def get_role_assignment_history(
     instance: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
     role_id: str | None = None,
     user_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
-    top: int = 100,
-    environment: str = "preview"
+    top: int = 100
 ) -> dict[str, Any]:
     """
     Get history of role assignments - who was granted roles and when.
@@ -2104,14 +2265,15 @@ def get_role_assignment_history(
 
     Args:
         instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
         role_id: Optional role ID to filter assignments for a specific role
         user_id: Optional user ID to filter assignments for a specific user
         from_date: Optional start date filter (ISO format: YYYY-MM-DD)
         to_date: Optional end date filter (ISO format: YYYY-MM-DD)
         top: Maximum records to return (default 100, max 500)
-        environment: API environment - 'preview' or 'production' (default: preview)
-        auth_user_id: SuccessFactors user ID for authentication (required)
-        auth_password: SuccessFactors password for authentication (required)
 
     Returns:
         dict containing:
@@ -2143,7 +2305,9 @@ def get_role_assignment_history(
             "user_id": user_id,
             "from_date": from_date,
             "to_date": to_date,
-            "top": top
+            "top": top,
+            "data_center": data_center,
+            "environment": environment
         },
         request_id=request_id
     )
@@ -2151,7 +2315,6 @@ def get_role_assignment_history(
     # Input validation
     try:
         _validate_identifier(instance, "instance")
-        _validate_environment(environment)
         if role_id:
             _validate_identifier(role_id, "role_id")
         if user_id:
@@ -2193,8 +2356,8 @@ def get_role_assignment_history(
         params["$filter"] = " and ".join(filters)
 
     result = _make_sf_odata_request(
-        instance, "/odata/v2/RBPBasicUserPermission", params,
-        environment, auth_user_id, auth_password, request_id
+        instance, "/odata/v2/RBPBasicUserPermission", data_center, environment,
+        auth_user_id, auth_password, params, request_id
     )
 
     if "error" in result:
@@ -2270,11 +2433,12 @@ def get_role_assignment_history(
 def get_picklist_values(
     instance: str,
     picklist_id: str,
+    data_center: str,
+    environment: str,
     auth_user_id: str,
     auth_password: str,
     locale: str = "en-US",
-    include_inactive: bool = False,
-    environment: str = "preview"
+    include_inactive: bool = False
 ) -> dict[str, Any]:
     """
     Get all values for a specific picklist.
@@ -2286,11 +2450,12 @@ def get_picklist_values(
     Args:
         instance: The SuccessFactors instance/company ID
         picklist_id: The picklist identifier (e.g., "ecJobFunction", "nationality")
-        locale: Locale for labels (default: en-US)
-        include_inactive: If True, includes inactive/expired values (default: False)
-        environment: API environment - 'preview' or 'production' (default: preview)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
         auth_user_id: SuccessFactors user ID for authentication (required)
         auth_password: SuccessFactors password for authentication (required)
+        locale: Locale for labels (default: en-US)
+        include_inactive: If True, includes inactive/expired values (default: False)
 
     Returns:
         dict containing:
@@ -2318,7 +2483,9 @@ def get_picklist_values(
         details={
             "picklist_id": picklist_id,
             "locale": locale,
-            "include_inactive": include_inactive
+            "include_inactive": include_inactive,
+            "data_center": data_center,
+            "environment": environment
         },
         request_id=request_id
     )
@@ -2328,7 +2495,6 @@ def get_picklist_values(
         _validate_identifier(instance, "instance")
         _validate_identifier(picklist_id, "picklist_id")
         _validate_locale(locale)
-        _validate_environment(environment)
     except ValueError as e:
         _audit_log(
             event_type="validation_error",
@@ -2350,8 +2516,8 @@ def get_picklist_values(
     }
 
     result = _make_sf_odata_request(
-        instance, "/odata/v2/PickListValueV2", params,
-        environment, auth_user_id, auth_password, request_id
+        instance, "/odata/v2/PickListValueV2", data_center, environment,
+        auth_user_id, auth_password, params, request_id
     )
 
     if "error" in result:
@@ -2361,8 +2527,8 @@ def get_picklist_values(
             "$format": "json"
         }
         result = _make_sf_odata_request(
-            instance, "/odata/v2/PicklistOption", params_alt,
-            environment, auth_user_id, auth_password, request_id
+            instance, "/odata/v2/PicklistOption", data_center, environment,
+            auth_user_id, auth_password, params_alt, request_id
         )
 
         if "error" in result:

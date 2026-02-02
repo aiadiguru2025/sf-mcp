@@ -1,0 +1,41 @@
+﻿Data Center,New Data Center (when applicable),Environment,Platform,Location,API Server,mTLS Certificate Server
+DC10,DC66,Production,Azure,"Sydney, Australia",https://api10.successfactors.com/,https://api10.cert.successfactors.com
+DC10,DC66,Preview,Azure,"Sydney, Australia",https://api10preview.sapsf.com/,https://api10preview.cert.sapsf.com
+DC12,DC33,Production,,"Rot, Germany ",https://api012.successfactors.eu/,https://api012.cert.successfactors.eu
+DC12,DC33,Preview,,"Rot, Germany",https://api12preview.sapsf.eu/,https://api12preview.cert.sapsf.eu
+DC15,DC30,Production,,"Shanghai, China",https://api15.sapsf.cn/,https://api15.cert.sapsf.cn
+DC15,DC30,Preview,,"Shanghai, China",https://api15preview.sapsf.cn/,https://api15preview.cert.sapsf.cn
+DC17,DC60,Preview,Azure,"Toronto, Canada",https://api17preview.sapsf.com/,https://api17preview.cert.sapsf.com
+DC17,DC60,Production,Azure,"Toronto, Canada",https://api17.sapsf.com/,https://api17.cert.sapsf.com
+DC19,DC62,Preview,Azure,"Sao Paulo, Brazil",https://api19preview.sapsf.com/,https://api19preview.cert.sapsf.com
+DC19,DC62,Production,Azure,"Sao Paulo, Brazil",https://api19.sapsf.com/,https://api19.cert.sapsf.com
+DC2,DC57,Production,Google Cloud Platform,"Eemshaven, The Netherlands",https://api2.successfactors.eu/https://api.successfactors.eu,https://api2.cert.successfactors.eu
+DC2,DC57,Sales Demo,Google Cloud Platform,"Eemshaven, The Netherlands",https://apisalesdemo2.successfactors.eu/,https://apisalesdemo2.cert.successfactors.eu
+DC2,DC57,Preview,Google Cloud Platform,"Eemshaven, The Netherlands",https://api2preview.sapsf.eu/,https://api2preview.cert.sapsf.eu
+DC22,,Preview,,"Dubai, UAE",https://api22preview.sapsf.com/,https://api22preview.cert.sapsf.com
+DC22,,Production,,"Dubai, UAE",https://api22.sapsf.com/,https://api22.cert.sapsf.com
+DC23,DC84,Preview,,"Riyadh, Saudi Arabia",https://api23preview.sapsf.com/,https://api23preview.cert.sapsf.com
+DC23,DC84,Production,,"Riyadh, Saudi Arabia",https://api23.sapsf.com/,https://api23.cert.sapsf.com
+DC4,DC68,Production,Azure,"Virginia, US",https://api4.successfactors.com/,https://api4.cert.successfactors.com
+DC4,DC68,Preview,Azure,"Virginia, US",https://api4preview.sapsf.com/,https://api4preview.cert.sapsf.com
+DC4,DC68,Sales Demo,Azure,"Virginia, US",https://api68sales.successfactors.com,https://api68sales.cert.successfactors.com/
+DC40,,Sales Demo,Azure,,https://api40sales.sapsf.com,https://api40sales.cert.sapsf.com
+DC41,,Preview,Azure,"Virginia, US",https://api41preview.sapsf.com,https://api41preview.cert.sapsf.com
+DC41,,Production,Azure,"Virginia, US",https://api41.sapsf.com,https://api41.cert.sapsf.com
+DC44,DC52,Preview,Google Cloud Platform,Singapore,https://api44preview.sapsf.com/,https://api44preview.cert.sapsf.com
+DC44,DC52,Production,Google Cloud Platform,Singapore,https://api44.sapsf.com/,https://api44.cert.sapsf.com
+DC47,,Preview,Microsoft Azure,Canada Central,https://api47preview.sapsf.com/,https://api47preview.cert.sapsf.com
+DC47,,Production,Microsoft Azure,Canada Central,https://api47.sapsf.com/,https://api47.cert.sapsf.com
+DC50,,Preview,Google Cloud Platform,"Tokyo, Japan",https://api50preview.sapsf.com,https://api50preview.cert.sapsf.com 
+DC50,,Production,Google Cloud Platform,"Tokyo, Japan",https://api50.sapsf.com,https://api50.cert.sapsf.com
+DC55,,Preview,Google Cloud Platform,"Frankfurt, Germany",https://api55preview.sapsf.eu/,https://api55preview.cert.sapsf.eu
+DC55,,Production,Google Cloud Platform,"Frankfurt, Germany",https://api55.sapsf.eu/,https://api55.cert.sapsf.eu 
+DC74,,Preview,Azure,"Zurich, Switzerland",https://api74preview.sapsf.eu,https://api74preview.cert.sapsf.eu
+DC74,,Production,Azure,"Zurich, Switzerland",https://api74.sapsf.eu,https://api74.cert.sapsf.eu
+DC8,DC70,Production,Azure,"Ashburn, Virginia, US",https://api8.successfactors.com/,https://api8.cert.successfactors.com
+DC8,DC70,Sales Demo,Azure,"Ashburn, Virginia, US",https://apisalesdemo8.successfactors.com/,https://api8sales.cert.successfactors.com
+DC8,DC70,Preview,Azure,"Ashburn, Virginia, US",https://api8preview.sapsf.com/,https://api8preview.cert.sapsf.com
+DC80,,Production,Google Cloud Platform,"Mumbai, India",https://api-in10.hr.cloud.sap,https://api-in10.cert.hr.cloud.sap
+DC80,,Preview,Google Cloud Platform,"Mumbai, India",https://api-in10-preview.hr.cloud.sap,https://api-in10-preview.cert.hr.cloud.sap
+DC82,,Production,Google Cloud Platform,"Riyadh, Saudi Arabia",https://api-sa20.hr.cloud.sap,https://api-sa20.cert.hr.cloud.sap
+DC82,,Preview,Google Cloud Platform,"Riyadh, Saudi Arabia",https://api-sa20-preview.hr.cloud.sap,https://api-sa20-preview.cert.hr.cloud.sap

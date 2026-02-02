@@ -50,17 +50,39 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
    uv sync
    ```
 
-3. **Authentication**
+3. **Authentication & Configuration**
 
-   Credentials must be provided as parameters on each tool call:
+   Each tool call requires the following parameters:
+   - `data_center`: SAP data center code (e.g., `DC55`, `DC10`, `DC4`)
+   - `environment`: Environment type (`preview`, `production`, or `sales_demo`)
    - `auth_user_id`: Your SuccessFactors user ID (without @instance)
    - `auth_password`: Your SuccessFactors password
 
-   **Note:** Credentials are not stored in environment variables. Each MCP client is responsible for securely managing and providing credentials per request.
+   **Note:** All connection parameters are provided by the MCP client on each tool call. No server-side configuration required.
 
-   | Variable | Required | Description |
-   |----------|----------|-------------|
-   | `SF_API_HOST` | No | API host (defaults to `api55preview.sapsf.eu`) |
+## Supported Data Centers
+
+| Data Center | Alias | Location | Environments |
+|-------------|-------|----------|--------------|
+| DC10 | DC66 | Sydney, Australia | preview, production |
+| DC12 | DC33 | Germany | preview, production |
+| DC15 | DC30 | Shanghai, China | preview, production |
+| DC17 | DC60 | Toronto, Canada | preview, production |
+| DC19 | DC62 | São Paulo, Brazil | preview, production |
+| DC2 | DC57 | Netherlands | preview, production, sales_demo |
+| DC22 | - | Dubai, UAE | preview, production |
+| DC23 | DC84 | Riyadh, Saudi Arabia | preview, production |
+| DC4 | DC68 | Virginia, US | preview, production, sales_demo |
+| DC40 | - | - | sales_demo |
+| DC41 | - | Virginia, US | preview, production |
+| DC44 | DC52 | Singapore | preview, production |
+| DC47 | - | Canada Central | preview, production |
+| DC50 | - | Tokyo, Japan | preview, production |
+| DC55 | - | Frankfurt, Germany | preview, production |
+| DC74 | - | Zurich, Switzerland | preview, production |
+| DC8 | DC70 | Ashburn, Virginia, US | preview, production, sales_demo |
+| DC80 | - | Mumbai, India | preview, production |
+| DC82 | - | Riyadh, Saudi Arabia | preview, production |
 
 ## Usage
 
@@ -128,7 +150,8 @@ Retrieves OData metadata for a specified SuccessFactors entity.
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
 | `entity` | string | Yes | OData entity name (e.g., "User", "Position") |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
 
@@ -146,10 +169,11 @@ Discover all available OData entities in an instance.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
-| `category` | string | No | Filter: "foundation", "employee", "talent", "platform", or "all" |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `category` | string | No | Filter: "foundation", "employee", "talent", "platform", or "all" |
 
 **Response:**
 ```json
@@ -178,8 +202,10 @@ Compare entity configuration between two instances (e.g., dev vs prod).
 | `instance1` | string | Yes | First instance (e.g., dev) |
 | `instance2` | string | Yes | Second instance (e.g., prod) |
 | `entity` | string | Yes | Entity to compare |
-| `environment1` | string | No | Environment for instance1 (default: preview) |
-| `environment2` | string | No | Environment for instance2 (default: production) |
+| `data_center1` | string | Yes | SAP data center for instance1 (e.g., "DC55") |
+| `environment1` | string | Yes | Environment for instance1 (e.g., "preview") |
+| `data_center2` | string | Yes | SAP data center for instance2 (e.g., "DC55") |
+| `environment2` | string | Yes | Environment for instance2 (e.g., "production") |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
 
@@ -212,10 +238,11 @@ Lists all Role-Based Permission roles.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
-| `include_description` | boolean | No | Include role descriptions (default: false) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `include_description` | boolean | No | Include role descriptions (default: false) |
 
 ---
 
@@ -227,10 +254,11 @@ Gets permissions assigned to specific RBP roles. Supports multiple role IDs.
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
 | `role_ids` | string | Yes | Single ID or comma-separated: "10" or "10,20,30" |
-| `locale` | string | No | Locale for labels (default: en-US) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `locale` | string | No | Locale for labels (default: en-US) |
 
 ---
 
@@ -242,10 +270,11 @@ Gets all permissions for specific users based on their assigned roles.
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
 | `user_ids` | string | Yes | Single ID or comma-separated: "admin" or "admin,user2" |
-| `locale` | string | No | Locale for labels (default: en-US) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `locale` | string | No | Locale for labels (default: en-US) |
 
 ---
 
@@ -257,10 +286,11 @@ Gets all RBP roles assigned to a specific user.
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
 | `user_id` | string | Yes | User ID to look up roles for |
-| `include_permissions` | boolean | No | Also fetch permissions for each role (default: false) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `include_permissions` | boolean | No | Also fetch permissions for each role (default: false) |
 
 **Response:**
 ```json
@@ -283,10 +313,11 @@ Maps UI labels to permission types and values.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
-| `locale` | string | No | Locale for labels (default: en-US) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `locale` | string | No | Locale for labels (default: en-US) |
 
 ---
 
@@ -301,10 +332,11 @@ Check if a user has a specific permission for a target user.
 | `target_user_id` | string | Yes | Target user of the permission |
 | `perm_type` | string | Yes | Permission type from metadata |
 | `perm_string_value` | string | Yes | Permission string value |
-| `perm_long_value` | string | No | Permission long value (default: -1L) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `perm_long_value` | string | No | Permission long value (default: -1L) |
 
 ---
 
@@ -315,10 +347,11 @@ Lists dynamic groups (permission groups) used in RBP rules.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
-| `group_type` | string | No | Filter by group type |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `group_type` | string | No | Filter by group type |
 
 ---
 
@@ -331,14 +364,15 @@ View modification history for RBP roles - who changed what and when.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 | `role_id` | string | No | Filter by specific role ID |
 | `role_name` | string | No | Filter by role name (alternative to role_id) |
 | `from_date` | string | No | Start date filter (YYYY-MM-DD) |
 | `to_date` | string | No | End date filter (YYYY-MM-DD) |
 | `top` | integer | No | Max records (default: 100, max: 500) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
-| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Response:**
 ```json
@@ -372,14 +406,15 @@ View history of role assignments - who was granted roles and when.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 | `role_id` | string | No | Filter assignments for a specific role |
 | `user_id` | string | No | Filter assignments for a specific user |
 | `from_date` | string | No | Start date filter (YYYY-MM-DD) |
 | `to_date` | string | No | End date filter (YYYY-MM-DD) |
 | `top` | integer | No | Max records (default: 100, max: 500) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
-| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Examples:**
 ```
@@ -430,15 +465,16 @@ Execute flexible OData queries against any SuccessFactors entity.
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
 | `entity` | string | Yes | Entity name or entity with key: "User" or "User('admin')" |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
 | `select` | string | No | Fields to return: "userId,firstName,lastName" |
 | `filter` | string | No | OData filter: "status eq 'active'" |
 | `expand` | string | No | Navigation properties: "empInfo,jobInfoNav" |
 | `top` | integer | No | Max records (default: 100, max: 1000) |
 | `skip` | integer | No | Records to skip for pagination |
 | `orderby` | string | No | Sort: "lastName asc" or "hireDate desc" |
-| `environment` | string | No | "preview" or "production" (default: preview) |
-| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
-| `auth_password` | string | Yes | SuccessFactors password for authentication |
 
 **Examples:**
 ```
@@ -474,11 +510,12 @@ Get all values for a specific picklist (dropdown options).
 |-----------|------|----------|-------------|
 | `instance` | string | Yes | SuccessFactors company ID |
 | `picklist_id` | string | Yes | Picklist ID: "ecJobFunction", "nationality" |
-| `locale` | string | No | Locale for labels (default: en-US) |
-| `include_inactive` | boolean | No | Include inactive values (default: false) |
-| `environment` | string | No | "preview" or "production" (default: preview) |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
 | `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
 | `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `locale` | string | No | Locale for labels (default: en-US) |
+| `include_inactive` | boolean | No | Include inactive values (default: false) |
 
 **Common Picklists:**
 - `ecJobFunction` - Job functions
