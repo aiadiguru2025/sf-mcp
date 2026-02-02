@@ -498,9 +498,9 @@ def _make_sf_odata_request(
 def get_configuration(
     instance: str,
     entity: str,
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get Configuration metadata details for the entity within the instance.
@@ -650,10 +650,10 @@ def get_configuration(
 @mcp.tool()
 def get_rbp_roles(
     instance: str,
-    include_description: bool = False,
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    include_description: bool = False,
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get all RBP (Role-Based Permission) roles in the SuccessFactors instance.
@@ -743,10 +743,10 @@ def get_rbp_roles(
 @mcp.tool()
 def get_dynamic_groups(
     instance: str,
-    group_type: str | None = None,
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    group_type: str | None = None,
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get dynamic groups (permission groups) used in RBP rules.
@@ -840,10 +840,10 @@ def get_dynamic_groups(
 def get_role_permissions(
     instance: str,
     role_ids: str,
-    locale: str = "en-US",
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    locale: str = "en-US",
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get all permissions assigned to one or more RBP roles.
@@ -922,10 +922,10 @@ def get_role_permissions(
 def get_user_permissions(
     instance: str,
     user_ids: str,
-    locale: str = "en-US",
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    locale: str = "en-US",
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get all permissions for one or more users based on their assigned roles.
@@ -1003,10 +1003,10 @@ def get_user_permissions(
 @mcp.tool()
 def get_permission_metadata(
     instance: str,
-    locale: str = "en-US",
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    locale: str = "en-US",
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get permission metadata mapping UI labels to permission types and values.
@@ -1086,10 +1086,10 @@ def check_user_permission(
     target_user_id: str,
     perm_type: str,
     perm_string_value: str,
-    perm_long_value: str = "-1L",
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    perm_long_value: str = "-1L",
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Check if a user has a specific permission for a target user.
@@ -1187,15 +1187,15 @@ def check_user_permission(
 def query_odata(
     instance: str,
     entity: str,
+    auth_user_id: str,
+    auth_password: str,
     select: str | None = None,
     filter: str | None = None,
     expand: str | None = None,
     top: int = 100,
     skip: int = 0,
     orderby: str | None = None,
-    environment: str = "preview",
-    auth_user_id: str,
-    auth_password: str
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Execute a flexible OData query against any SuccessFactors entity.
@@ -1363,10 +1363,10 @@ def query_odata(
 def get_user_roles(
     instance: str,
     user_id: str,
-    include_permissions: bool = False,
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    include_permissions: bool = False,
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get all RBP roles assigned to a specific user.
@@ -1495,10 +1495,10 @@ def compare_configurations(
     instance1: str,
     instance2: str,
     entity: str,
-    environment1: str = "preview",
-    environment2: str = "production",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    environment1: str = "preview",
+    environment2: str = "production"
 ) -> dict[str, Any]:
     """
     Compare entity configuration/metadata between two SuccessFactors instances.
@@ -1720,10 +1720,10 @@ def compare_configurations(
 @mcp.tool()
 def list_entities(
     instance: str,
-    category: str | None = None,
-    environment: str = "preview",
     auth_user_id: str,
-    auth_password: str
+    auth_password: str,
+    category: str | None = None,
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     List all available OData entities in the SuccessFactors instance.
@@ -1910,14 +1910,14 @@ def list_entities(
 @mcp.tool()
 def get_role_history(
     instance: str,
+    auth_user_id: str,
+    auth_password: str,
     role_id: str | None = None,
     role_name: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
     top: int = 100,
-    environment: str = "preview",
-    auth_user_id: str,
-    auth_password: str
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get modification history for RBP roles.
@@ -2087,14 +2087,14 @@ def get_role_history(
 @mcp.tool()
 def get_role_assignment_history(
     instance: str,
+    auth_user_id: str,
+    auth_password: str,
     role_id: str | None = None,
     user_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
     top: int = 100,
-    environment: str = "preview",
-    auth_user_id: str,
-    auth_password: str
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get history of role assignments - who was granted roles and when.
@@ -2270,11 +2270,11 @@ def get_role_assignment_history(
 def get_picklist_values(
     instance: str,
     picklist_id: str,
+    auth_user_id: str,
+    auth_password: str,
     locale: str = "en-US",
     include_inactive: bool = False,
-    environment: str = "preview",
-    auth_user_id: str,
-    auth_password: str
+    environment: str = "preview"
 ) -> dict[str, Any]:
     """
     Get all values for a specific picklist.
