@@ -2660,17 +2660,26 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    # Get port from environment (Cloud Run sets PORT)
-    port = int(os.environ.get("PORT", 8080))
-
-    # Build middleware list for HTTP app
-    middleware_list = []
-    if MCP_API_KEY:
-        from starlette.middleware import Middleware as StarletteMiddleware
-        middleware_list.append(StarletteMiddleware(APIKeyMiddleware))
-        logger.info(f"API key middleware registered for port {port}")
+    import sys
+    import asyncio
+    
+    # Check if PORT env var is set (Cloud Run deployment)
+    # If not, assume we're running in stdio mode for Claude Desktop
+    if os.environ.get("PORT"):
+        # HTTP mode for Cloud Run
+        import uvicorn
+        port = int(os.environ.get("PORT", 8080))
+        
+        # Build middleware list for HTTP app
+        middleware_list = []
+        if MCP_API_KEY:
+            from starlette.middleware import Middleware as StarletteMiddleware
+            middleware_list.append(StarletteMiddleware(APIKeyMiddleware))
+        
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    else:
+        # Stdio mode for Claude Desktop
+        asyncio.run(mcp.run())
 
     # Create HTTP app with middleware
     app = mcp.http_app(
