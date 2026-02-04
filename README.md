@@ -617,7 +617,7 @@ Here are the top 10 questions you can ask Claude using this SuccessFactors MCP s
 2. **"What permissions does user 'jsmith' have in the system?"**
    - Uses `get_user_permissions` to see all effective permissions from assigned roles
 
-3. **"Compare the User entity configuration between my dev instance (SFLAP070974) and production instance (PROD123)"**
+3. **"Compare the User entity configuration between my dev instance (SFLAP012345) and production instance (PROD123)"**
    - Uses `compare_configurations` to identify configuration drift between environments
 
 4. **"List all active employees hired in 2024 with their compensation details"**
