@@ -101,11 +101,31 @@ uv run main.py
 
 ### Claude Desktop Integration
 
-Add to your Claude Desktop configuration:
+Follow these steps to add the SuccessFactors MCP server to Claude Desktop:
+
+#### Step 1: Locate Your Configuration File
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+If the file doesn't exist, create it.
+
+#### Step 2: Find the Path to `uv`
+
+Run this command in your terminal to find where `uv` is installed:
+
+```bash
+# macOS/Linux
+which uv
+
+# Windows (PowerShell)
+Get-Command uv | Select-Object -ExpandProperty Source
+```
+
+#### Step 3: Add the MCP Server Configuration
+
+Edit your `claude_desktop_config.json` file and add the sf-mcp server:
 
 ```json
 {
@@ -123,9 +143,53 @@ Add to your Claude Desktop configuration:
 }
 ```
 
-**Note:** Credentials (`auth_user_id` and `auth_password`) must be provided on each tool call.
+**Example with actual paths (macOS):**
+```json
+{
+  "mcpServers": {
+    "sf-mcp": {
+      "command": "/Users/yourusername/.local/bin/uv",
+      "args": [
+        "--directory",
+        "/Users/yourusername/projects/sf-mcp",
+        "run",
+        "main.py"
+      ]
+    }
+  }
+}
+```
 
-For Cloud Run deployment:
+**Example with actual paths (Windows):**
+```json
+{
+  "mcpServers": {
+    "sf-mcp": {
+      "command": "C:\\Users\\yourusername\\.local\\bin\\uv.exe",
+      "args": [
+        "--directory",
+        "C:\\Users\\yourusername\\projects\\sf-mcp",
+        "run",
+        "main.py"
+      ]
+    }
+  }
+}
+```
+
+#### Step 4: Restart Claude Desktop
+
+Completely quit and restart Claude Desktop for the changes to take effect.
+
+#### Step 5: Verify the Connection
+
+In Claude Desktop, you should see the MCP tools icon (hammer) in the input area. Click it to see the 14 SuccessFactors tools available.
+
+**Note:** Credentials (`auth_user_id` and `auth_password`) must be provided on each tool call - they are not stored in the configuration.
+
+#### Cloud Run Deployment (Alternative)
+
+For remote deployment via Google Cloud Run:
 ```json
 {
   "mcpServers": {
@@ -538,6 +602,53 @@ Get all values for a specific picklist (dropdown options).
   "has_inactive": true
 }
 ```
+
+---
+
+## Example Queries
+
+Here are the top 10 questions you can ask Claude using this SuccessFactors MCP server:
+
+### Top 10 SuccessFactors Queries
+
+1. **"Show me all users in department 'Sales' with their job titles and manager information"**
+   - Queries User and EmpJob entities with filters and navigation properties
+
+2. **"What permissions does user 'jsmith' have in the system?"**
+   - Uses `get_user_permissions` to see all effective permissions from assigned roles
+
+3. **"Compare the User entity configuration between my dev instance (SFLAP070974) and production instance (PROD123)"**
+   - Uses `compare_configurations` to identify configuration drift between environments
+
+4. **"List all active employees hired in 2024 with their compensation details"**
+   - Queries EmpEmployment/EmpJob with date filters and expansion to compensation data
+
+5. **"Which users have both 'HR Role' and 'Manager Role' assigned?"**
+   - Uses `get_user_roles` for multiple users to find role overlaps
+
+6. **"Show me all available picklist values for 'ecJobCode' (Job Codes)"**
+   - Uses `get_picklist_values` to see all job code options configured in the system
+
+7. **"Get all employees reporting to manager 'asmith1' including their positions and locations"**
+   - Queries User entity with manager filter and expands to job/location details
+
+8. **"What are all the OData entities available in my SuccessFactors instance?"**
+   - Uses `list_entities` to discover all queryable data entities
+
+9. **"Show me the role modification history for the 'Recruiters' role in the last 6 months"**
+   - Uses `get_role_history` with date filters to audit role changes
+
+10. **"Check if user 'admin1' has permission to view payroll data for user 'jdoe'"**
+    - Uses `check_user_permission` to verify specific access rights between users
+
+### Bonus Advanced Queries
+
+- "Export all cost centers with their managers to analyze organizational structure"
+- "Find all employees with expiring work permits in the next 90 days"
+- "List all dynamic groups used in RBP rules"
+- "Show me all fields in the Position entity that are marked as required"
+
+These queries leverage the MCP server's capabilities for user management, permissions, configuration analysis, and data extraction from your SuccessFactors system.
 
 ---
 
