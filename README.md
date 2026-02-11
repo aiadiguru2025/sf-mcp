@@ -1,14 +1,14 @@
 # SF-MCP: SAP SuccessFactors MCP Server
 
-A secure Model Context Protocol (MCP) server providing 14 tools for querying and managing SAP SuccessFactors via OData APIs.
+A secure Model Context Protocol (MCP) server providing 29 tools for querying and managing SAP SuccessFactors via OData APIs.
 
 ## Overview
 
-This MCP server enables Claude Desktop (or any MCP-compatible client) to interact with SAP SuccessFactors. It provides tools for configuration management, role-based permissions (RBP), data querying, and cross-instance comparison.
+This MCP server enables Claude Desktop (or any MCP-compatible client) to interact with SAP SuccessFactors. It provides tools for configuration management, role-based permissions (RBP), data querying, HR operations, and cross-instance comparison.
 
 ## Features
 
-### Tools (14 total)
+### Tools (29 total)
 
 | Category | Tool | Description |
 |----------|------|-------------|
@@ -26,6 +26,21 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 | **RBP Audit** | `get_role_assignment_history` | View history of role assignments |
 | **Data Query** | `query_odata` | Flexible OData queries with filtering |
 | **Data Validation** | `get_picklist_values` | Get dropdown/picklist options |
+| **Employee Lookup** | `get_employee_profile` | Get complete employee profile with job info and manager |
+| **Employee Lookup** | `search_employees` | Find employees by name, department, location, or manager |
+| **Employee Lookup** | `get_employee_history` | View job history (promotions, transfers, title changes) |
+| **Employee Lookup** | `get_team_roster` | Get a manager's team roster with direct/indirect reports |
+| **Time Off** | `get_time_off_balances` | Check vacation/PTO/sick leave balances |
+| **Time Off** | `get_upcoming_time_off` | See who's out in a date range (absence calendar) |
+| **Time Off** | `get_time_off_requests` | View pending time-off requests for approval tracking |
+| **Hiring** | `get_open_requisitions` | List job requisitions with status and hiring manager |
+| **Hiring** | `get_candidate_pipeline` | Track candidates through hiring stages |
+| **Hiring** | `get_new_hires` | List recent/upcoming new hires for onboarding |
+| **Compliance** | `get_terminations` | List terminated employees for exit processing |
+| **Compliance** | `get_employees_missing_data` | Find employees with incomplete profiles |
+| **Compliance** | `get_anniversary_employees` | Find upcoming work anniversaries for recognition |
+| **Performance** | `get_performance_review_status` | Track review form completion across the org |
+| **Compensation** | `get_compensation_details` | Get compensation breakdown with pay components |
 
 ### Security Features
 
@@ -183,7 +198,7 @@ Completely quit and restart Claude Desktop for the changes to take effect.
 
 #### Step 5: Verify the Connection
 
-In Claude Desktop, you should see the MCP tools icon (hammer) in the input area. Click it to see the 14 SuccessFactors tools available.
+In Claude Desktop, you should see the MCP tools icon (hammer) in the input area. Click it to see the 29 SuccessFactors tools available.
 
 **Note:** Credentials (`auth_user_id` and `auth_password`) must be provided on each tool call - they are not stored in the configuration.
 
@@ -605,6 +620,282 @@ Get all values for a specific picklist (dropdown options).
 
 ---
 
+### Employee Lookup Tools
+
+#### get_employee_profile
+
+Get a complete employee profile including job info, contact details, and manager.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `user_id` | string | Yes | Employee's user ID (e.g., "jsmith") |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type: "preview", "production", or "sales_demo" |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `include_compensation` | boolean | No | Include current compensation details (default: false) |
+
+---
+
+#### search_employees
+
+Find employees by name, department, location, or manager.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `data_center` | string | Yes | SAP data center (e.g., "DC55", "DC10") |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `search_text` | string | No | Partial name to search across first/last/display name |
+| `department` | string | No | Filter by department |
+| `location` | string | No | Filter by location |
+| `manager_id` | string | No | Filter to a manager's direct reports |
+| `status` | string | No | "active", "inactive", or "all" (default: "active") |
+| `top` | integer | No | Max results (default: 50, max: 200) |
+
+---
+
+#### get_employee_history
+
+View an employee's job history including promotions, transfers, and title changes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `user_id` | string | Yes | Employee's user ID |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `include_compensation_changes` | boolean | No | Include salary history (default: false) |
+
+---
+
+#### get_team_roster
+
+Get a manager's team roster with direct and optionally indirect reports.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `manager_id` | string | Yes | Manager's user ID |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `include_indirect_reports` | boolean | No | Include reports-of-reports (default: false) |
+| `top` | integer | No | Max direct reports (default: 100, max: 200) |
+
+---
+
+### Time Off Tools
+
+#### get_time_off_balances
+
+Check vacation, PTO, and sick leave balances for one or more employees.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `user_ids` | string | Yes | Single or comma-separated user IDs (max 50) |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `as_of_date` | string | No | Check balance as of date (YYYY-MM-DD) |
+
+---
+
+#### get_upcoming_time_off
+
+See who is out or taking time off in a date range (team absence calendar).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `start_date` | string | Yes | Start of date range (YYYY-MM-DD) |
+| `end_date` | string | Yes | End of date range (YYYY-MM-DD) |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `department` | string | No | Filter by department |
+| `manager_id` | string | No | Filter to manager's team |
+| `status` | string | No | "approved", "pending", or "all" (default: "approved") |
+| `top` | integer | No | Max results (default: 200, max: 500) |
+
+---
+
+#### get_time_off_requests
+
+View time-off requests for approval tracking.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `user_id` | string | No | Filter to specific employee |
+| `status` | string | No | "pending", "approved", "rejected", "cancelled", or "all" (default: "pending") |
+| `from_date` | string | No | Only requests submitted after this date (YYYY-MM-DD) |
+| `top` | integer | No | Max results (default: 50, max: 200) |
+
+---
+
+### Hiring & Onboarding Tools
+
+#### get_open_requisitions
+
+List job requisitions with status and hiring manager.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `department` | string | No | Filter by department |
+| `hiring_manager_id` | string | No | Filter by hiring manager |
+| `location` | string | No | Filter by location |
+| `status` | string | No | "open", "filled", "closed", or "all" (default: "open") |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+#### get_candidate_pipeline
+
+Track candidates for a job requisition through hiring stages.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `requisition_id` | string | Yes | Job requisition ID |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `include_rejected` | boolean | No | Include rejected candidates (default: false) |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+#### get_new_hires
+
+List recent and upcoming new hires for onboarding planning.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `start_date_from` | string | Yes | Hires starting on/after this date (YYYY-MM-DD) |
+| `start_date_to` | string | Yes | Hires starting on/before this date (YYYY-MM-DD) |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `department` | string | No | Filter by department |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+### Compliance & Reporting Tools
+
+#### get_terminations
+
+List terminated employees in a date range for exit processing and compliance.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `from_date` | string | Yes | Start of date range (YYYY-MM-DD) |
+| `to_date` | string | Yes | End of date range (YYYY-MM-DD) |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `department` | string | No | Filter by department |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+#### get_employees_missing_data
+
+Find employees with incomplete profiles for compliance audits.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `check_fields` | string | Yes | Comma-separated: "email", "phone", "address", "emergency_contact" |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `department` | string | No | Filter by department |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+#### get_anniversary_employees
+
+Find employees with upcoming work anniversaries for recognition programs.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `from_date` | string | Yes | Start of anniversary search range (YYYY-MM-DD) |
+| `to_date` | string | Yes | End of anniversary search range (YYYY-MM-DD) |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `milestone_years_only` | boolean | No | Only show 1, 5, 10, 15, 20, 25+ years (default: false) |
+| `department` | string | No | Filter by department |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+### Performance & Compensation Tools
+
+#### get_performance_review_status
+
+Track performance review form completion across the organization.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `form_template_id` | string | No | Filter by form template ID |
+| `department` | string | No | Filter by department |
+| `manager_id` | string | No | Filter by manager |
+| `status` | string | No | "not_started", "in_progress", "completed", or "" for all |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+---
+
+#### get_compensation_details
+
+Get compensation breakdown for employees including base pay and pay components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance` | string | Yes | SuccessFactors company ID |
+| `user_ids` | string | Yes | Single or comma-separated user IDs (max 20) |
+| `data_center` | string | Yes | SAP data center |
+| `environment` | string | Yes | Environment type |
+| `auth_user_id` | string | Yes | SuccessFactors user ID for authentication |
+| `auth_password` | string | Yes | SuccessFactors password for authentication |
+| `effective_date` | string | No | Show compensation as of this date (YYYY-MM-DD) |
+
+---
+
 ## Example Queries
 
 Here are the top 10 questions you can ask Claude using this SuccessFactors MCP server:
@@ -641,6 +932,38 @@ Here are the top 10 questions you can ask Claude using this SuccessFactors MCP s
 10. **"Check if user 'admin1' has permission to view payroll data for user 'jdoe'"**
     - Uses `check_user_permission` to verify specific access rights between users
 
+### HR Operations Queries
+
+11. **"Pull up the full profile for employee 'jsmith' including their compensation details"**
+    - Uses `get_employee_profile` with `include_compensation=true`
+
+12. **"Find all employees in the Marketing department"**
+    - Uses `search_employees` with department filter
+
+13. **"Show me who's on vacation next week"**
+    - Uses `get_upcoming_time_off` with date range and status "approved"
+
+14. **"What are the PTO balances for my team?"**
+    - Uses `get_time_off_balances` with comma-separated user IDs
+
+15. **"List all open job requisitions for the Engineering department"**
+    - Uses `get_open_requisitions` with department filter
+
+16. **"Show me all new hires starting in February 2026"**
+    - Uses `get_new_hires` with start_date_from and start_date_to
+
+17. **"Which employees are missing emergency contact information?"**
+    - Uses `get_employees_missing_data` with check_fields="emergency_contact"
+
+18. **"Who has a work anniversary this month? Show milestones only."**
+    - Uses `get_anniversary_employees` with milestone_years_only=true
+
+19. **"What's the status of performance reviews for my team?"**
+    - Uses `get_performance_review_status` with manager_id filter
+
+20. **"Show me John Smith's job history including all promotions"**
+    - Uses `get_employee_history` to see chronological career progression
+
 ### Bonus Advanced Queries
 
 - "Export all cost centers with their managers to analyze organizational structure"
@@ -648,7 +971,7 @@ Here are the top 10 questions you can ask Claude using this SuccessFactors MCP s
 - "List all dynamic groups used in RBP rules"
 - "Show me all fields in the Position entity that are marked as required"
 
-These queries leverage the MCP server's capabilities for user management, permissions, configuration analysis, and data extraction from your SuccessFactors system.
+These queries leverage the MCP server's capabilities for user management, permissions, HR operations, configuration analysis, and data extraction from your SuccessFactors system.
 
 ---
 
@@ -714,7 +1037,7 @@ curl http://localhost:8080/mcp
 
 ```
 sf-mcp/
-├── main.py              # MCP server with 14 tools
+├── main.py              # MCP server with 29 tools
 ├── pyproject.toml       # Project dependencies
 ├── uv.lock              # Dependency lock file
 ├── Dockerfile           # Container image for Cloud Run

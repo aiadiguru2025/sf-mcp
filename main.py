@@ -5,6 +5,7 @@ import logging
 import json
 import time
 import uuid
+from datetime import datetime, date
 from typing import Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -376,6 +377,15 @@ def _validate_odata_filter(value: str) -> str:
         raise ValueError("Invalid filter: expression too long (max 2000 characters)")
 
     # Sanitize quotes in string literals
+    return value
+
+
+def _validate_date(value: str, field_name: str) -> str:
+    """Validate that a value is a valid YYYY-MM-DD date string."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"Invalid {field_name}: must be in YYYY-MM-DD format (e.g., '2026-01-15')")
     return value
 
 
@@ -2609,6 +2619,2082 @@ def get_picklist_values(
         },
         request_id=request_id,
         duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+# =============================================================================
+# HR OPERATIONS TOOLS: Employee Lookup
+# =============================================================================
+
+
+@mcp.tool()
+def get_employee_profile(
+    instance: str,
+    user_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    include_compensation: bool = False
+) -> dict[str, Any]:
+    """
+    Get a complete employee profile including job info, contact details, and manager.
+
+    Returns the employee's current job title, department, location, manager,
+    email, phone, and hire date in a single call. Optionally includes compensation.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_id: The employee's user ID (e.g., 'jsmith')
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        include_compensation: If True, also fetches current compensation details
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation",
+        tool_name="get_employee_profile",
+        instance=instance,
+        status="started",
+        details={"user_id": user_id, "include_compensation": include_compensation},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(user_id, "user_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_employee_profile",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    safe_user_id = _sanitize_odata_string(user_id)
+
+    # Get user profile with job info and manager
+    params = {
+        "$filter": f"userId eq '{safe_user_id}'",
+        "$select": "userId,username,firstName,lastName,displayName,email,hireDate,status,hr,manager,department,division,location,title",
+        "$expand": "manager,hr",
+        "$format": "json",
+        "$top": "1"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/User", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_employee_profile",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    # Extract user data
+    users = result.get("d", {}).get("results", [])
+    if not users:
+        return {"error": f"Employee '{user_id}' not found", "message": "Check the user ID and try again."}
+
+    user = users[0]
+
+    # Build profile
+    profile = {
+        "user_id": user.get("userId"),
+        "display_name": user.get("displayName") or f"{user.get('firstName', '')} {user.get('lastName', '')}".strip(),
+        "first_name": user.get("firstName"),
+        "last_name": user.get("lastName"),
+        "email": user.get("email"),
+        "hire_date": user.get("hireDate"),
+        "status": user.get("status"),
+        "title": user.get("title"),
+        "department": user.get("department"),
+        "division": user.get("division"),
+        "location": user.get("location"),
+    }
+
+    # Extract manager info
+    manager_data = user.get("manager", {})
+    if isinstance(manager_data, dict) and "results" in manager_data:
+        mgrs = manager_data["results"]
+        if mgrs:
+            mgr = mgrs[0]
+            profile["manager"] = {
+                "user_id": mgr.get("userId"),
+                "name": mgr.get("displayName") or f"{mgr.get('firstName', '')} {mgr.get('lastName', '')}".strip()
+            }
+    elif isinstance(manager_data, dict) and manager_data.get("userId"):
+        profile["manager"] = {
+            "user_id": manager_data.get("userId"),
+            "name": manager_data.get("displayName") or f"{manager_data.get('firstName', '')} {manager_data.get('lastName', '')}".strip()
+        }
+
+    # Extract HR info
+    hr_data = user.get("hr", {})
+    if isinstance(hr_data, dict) and hr_data.get("userId"):
+        profile["hr_rep"] = {
+            "user_id": hr_data.get("userId"),
+            "name": hr_data.get("displayName") or f"{hr_data.get('firstName', '')} {hr_data.get('lastName', '')}".strip()
+        }
+
+    # Optionally fetch compensation
+    if include_compensation:
+        comp_params = {
+            "$filter": f"userId eq '{safe_user_id}'",
+            "$select": "userId,startDate,payGroup,payGrade,compensatedHours",
+            "$expand": "empPayCompRecurringNav",
+            "$format": "json",
+            "$top": "5",
+            "$orderby": "startDate desc"
+        }
+        comp_result = _make_sf_odata_request(
+            instance, "/odata/v2/EmpCompensation", data_center, environment,
+            auth_user_id, auth_password, comp_params, request_id
+        )
+        if "error" not in comp_result:
+            comp_records = comp_result.get("d", {}).get("results", [])
+            if comp_records:
+                latest = comp_records[0]
+                comp_info = {
+                    "pay_group": latest.get("payGroup"),
+                    "pay_grade": latest.get("payGrade"),
+                    "effective_date": latest.get("startDate"),
+                }
+                # Extract recurring pay components
+                recurring = latest.get("empPayCompRecurringNav", {})
+                if isinstance(recurring, dict) and "results" in recurring:
+                    comp_info["pay_components"] = [
+                        {
+                            "pay_component": r.get("payComponent"),
+                            "amount": r.get("paycompvalue"),
+                            "currency": r.get("currencyCode"),
+                            "frequency": r.get("frequency"),
+                        }
+                        for r in recurring["results"]
+                    ]
+                profile["compensation"] = comp_info
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_employee_profile",
+        instance=instance, status="success",
+        details={"user_id": user_id, "include_compensation": include_compensation},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return {"profile": profile}
+
+
+@mcp.tool()
+def search_employees(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    search_text: str = "",
+    department: str = "",
+    location: str = "",
+    manager_id: str = "",
+    status: str = "active",
+    top: int = 50
+) -> dict[str, Any]:
+    """
+    Search for employees by name, department, location, or manager.
+
+    Find employees without knowing their exact user IDs. Supports partial name
+    matching and filtering by department, location, or manager.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        search_text: Partial name to search (searches first name and last name)
+        department: Filter by department name or code
+        location: Filter by work location
+        manager_id: Filter to show only this manager's direct reports
+        status: Employee status filter: 'active', 'inactive', or 'all' (default: 'active')
+        top: Maximum number of results to return (default: 50, max: 200)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 200:
+        top = 200
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="search_employees",
+        instance=instance, status="started",
+        details={"search_text": search_text[:50] if search_text else None, "department": department, "top": top},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        if manager_id:
+            _validate_identifier(manager_id, "manager_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="search_employees",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Build filter
+    filters = []
+
+    if search_text:
+        safe_text = _sanitize_odata_string(search_text)
+        filters.append(f"(substringof('{safe_text}',firstName) or substringof('{safe_text}',lastName) or substringof('{safe_text}',displayName))")
+
+    if department:
+        safe_dept = _sanitize_odata_string(department)
+        filters.append(f"department eq '{safe_dept}'")
+
+    if location:
+        safe_loc = _sanitize_odata_string(location)
+        filters.append(f"location eq '{safe_loc}'")
+
+    if manager_id:
+        safe_mgr = _sanitize_odata_string(manager_id)
+        filters.append(f"manager eq '{safe_mgr}'")
+
+    if status == "active":
+        filters.append("status eq 'active' or status eq 't'")
+    elif status == "inactive":
+        filters.append("status eq 'inactive' or status eq 'f'")
+
+    params = {
+        "$select": "userId,firstName,lastName,displayName,email,hireDate,status,title,department,division,location,manager",
+        "$format": "json",
+        "$top": str(top)
+    }
+
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/User", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="search_employees",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    employees = []
+    for entry in result.get("d", {}).get("results", []):
+        employees.append({
+            "user_id": entry.get("userId"),
+            "display_name": entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip(),
+            "email": entry.get("email"),
+            "title": entry.get("title"),
+            "department": entry.get("department"),
+            "division": entry.get("division"),
+            "location": entry.get("location"),
+            "hire_date": entry.get("hireDate"),
+            "status": entry.get("status"),
+        })
+
+    response_data = {
+        "employees": employees,
+        "count": len(employees),
+        "search_criteria": {
+            "search_text": search_text or None,
+            "department": department or None,
+            "location": location or None,
+            "manager_id": manager_id or None,
+            "status": status,
+        }
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="search_employees",
+        instance=instance, status="success",
+        details={"records_returned": len(employees)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_employee_history(
+    instance: str,
+    user_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    include_compensation_changes: bool = False
+) -> dict[str, Any]:
+    """
+    View an employee's job history including promotions, transfers, and title changes.
+
+    Shows chronological job records with title, department, location, and manager
+    for each period. Useful for reviewing career progression during reviews or
+    retention conversations.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_id: The employee's user ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        include_compensation_changes: If True, also fetches salary history
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_employee_history",
+        instance=instance, status="started",
+        details={"user_id": user_id},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(user_id, "user_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_employee_history",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    safe_user_id = _sanitize_odata_string(user_id)
+
+    params = {
+        "$filter": f"userId eq '{safe_user_id}'",
+        "$select": "userId,startDate,endDate,jobTitle,department,location,position,managerId,employeeClass,eventReason,emplStatus",
+        "$orderby": "startDate desc",
+        "$format": "json",
+        "$top": "100"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/EmpJob", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_employee_history",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    history = []
+    for entry in result.get("d", {}).get("results", []):
+        history.append({
+            "start_date": entry.get("startDate"),
+            "end_date": entry.get("endDate"),
+            "job_title": entry.get("jobTitle"),
+            "department": entry.get("department"),
+            "location": entry.get("location"),
+            "position": entry.get("position"),
+            "manager_id": entry.get("managerId"),
+            "employee_class": entry.get("employeeClass"),
+            "event_reason": entry.get("eventReason"),
+            "employment_status": entry.get("emplStatus"),
+        })
+
+    response_data = {
+        "user_id": user_id,
+        "job_history": history,
+        "record_count": len(history),
+    }
+
+    # Optionally fetch compensation history
+    if include_compensation_changes:
+        comp_params = {
+            "$filter": f"userId eq '{safe_user_id}'",
+            "$select": "userId,startDate,payGroup,payGrade",
+            "$expand": "empPayCompRecurringNav",
+            "$orderby": "startDate desc",
+            "$format": "json",
+            "$top": "50"
+        }
+        comp_result = _make_sf_odata_request(
+            instance, "/odata/v2/EmpCompensation", data_center, environment,
+            auth_user_id, auth_password, comp_params, request_id
+        )
+        if "error" not in comp_result:
+            comp_history = []
+            for entry in comp_result.get("d", {}).get("results", []):
+                comp_record = {
+                    "effective_date": entry.get("startDate"),
+                    "pay_group": entry.get("payGroup"),
+                    "pay_grade": entry.get("payGrade"),
+                }
+                recurring = entry.get("empPayCompRecurringNav", {})
+                if isinstance(recurring, dict) and "results" in recurring:
+                    comp_record["pay_components"] = [
+                        {
+                            "pay_component": r.get("payComponent"),
+                            "amount": r.get("paycompvalue"),
+                            "currency": r.get("currencyCode"),
+                            "frequency": r.get("frequency"),
+                        }
+                        for r in recurring["results"]
+                    ]
+                comp_history.append(comp_record)
+            response_data["compensation_history"] = comp_history
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_employee_history",
+        instance=instance, status="success",
+        details={"user_id": user_id, "records_returned": len(history)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_team_roster(
+    instance: str,
+    manager_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    include_indirect_reports: bool = False,
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    Get a manager's team roster with direct (and optionally indirect) reports.
+
+    Shows all active team members with their job title, department, location,
+    and hire date. Useful for org chart views, team planning, and 1-on-1 prep.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        manager_id: The manager's user ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        include_indirect_reports: If True, also fetches reports-of-reports (1 level deep)
+        top: Maximum direct reports to return (default: 100, max: 200)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 200:
+        top = 200
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_team_roster",
+        instance=instance, status="started",
+        details={"manager_id": manager_id, "include_indirect_reports": include_indirect_reports},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(manager_id, "manager_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_team_roster",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    safe_mgr = _sanitize_odata_string(manager_id)
+
+    # Get direct reports
+    params = {
+        "$filter": f"manager eq '{safe_mgr}' and (status eq 'active' or status eq 't')",
+        "$select": "userId,firstName,lastName,displayName,email,hireDate,title,department,division,location",
+        "$format": "json",
+        "$top": str(top)
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/User", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_team_roster",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    direct_reports = []
+    for entry in result.get("d", {}).get("results", []):
+        direct_reports.append({
+            "user_id": entry.get("userId"),
+            "display_name": entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip(),
+            "email": entry.get("email"),
+            "title": entry.get("title"),
+            "department": entry.get("department"),
+            "division": entry.get("division"),
+            "location": entry.get("location"),
+            "hire_date": entry.get("hireDate"),
+        })
+
+    response_data = {
+        "manager_id": manager_id,
+        "direct_reports": direct_reports,
+        "direct_report_count": len(direct_reports),
+    }
+
+    # Optionally fetch indirect reports (1 level)
+    if include_indirect_reports and direct_reports:
+        indirect_reports = []
+        # Query reports for each direct report (cap at 10 sub-queries to avoid timeout)
+        for dr in direct_reports[:10]:
+            dr_id = dr["user_id"]
+            if not dr_id:
+                continue
+            safe_dr = _sanitize_odata_string(dr_id)
+            sub_params = {
+                "$filter": f"manager eq '{safe_dr}' and (status eq 'active' or status eq 't')",
+                "$select": "userId,firstName,lastName,displayName,email,hireDate,title,department,location",
+                "$format": "json",
+                "$top": "50"
+            }
+            sub_result = _make_sf_odata_request(
+                instance, "/odata/v2/User", data_center, environment,
+                auth_user_id, auth_password, sub_params, request_id
+            )
+            if "error" not in sub_result:
+                for entry in sub_result.get("d", {}).get("results", []):
+                    indirect_reports.append({
+                        "user_id": entry.get("userId"),
+                        "display_name": entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip(),
+                        "title": entry.get("title"),
+                        "department": entry.get("department"),
+                        "location": entry.get("location"),
+                        "reports_to": dr_id,
+                    })
+
+        response_data["indirect_reports"] = indirect_reports
+        response_data["indirect_report_count"] = len(indirect_reports)
+        response_data["total_team_size"] = len(direct_reports) + len(indirect_reports)
+    else:
+        response_data["total_team_size"] = len(direct_reports)
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_team_roster",
+        instance=instance, status="success",
+        details={"manager_id": manager_id, "direct_count": len(direct_reports), "total": response_data["total_team_size"]},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+# =============================================================================
+# HR OPERATIONS TOOLS: Time Off & Leave Management
+# =============================================================================
+
+
+@mcp.tool()
+def get_time_off_balances(
+    instance: str,
+    user_ids: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    as_of_date: str = ""
+) -> dict[str, Any]:
+    """
+    Check vacation, PTO, and sick leave balances for one or more employees.
+
+    Quickly answer 'How much PTO do I have?' for any employee. Supports
+    checking multiple employees at once.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_ids: Employee user ID(s) - single ID or comma-separated (max 50)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        as_of_date: Check balance as of this date (YYYY-MM-DD). Defaults to today.
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_time_off_balances",
+        instance=instance, status="started",
+        details={"user_ids_count": len(user_ids.split(","))},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_ids(user_ids, "user_ids")
+        if as_of_date:
+            _validate_date(as_of_date, "as_of_date")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_time_off_balances",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    id_list = [uid.strip() for uid in user_ids.split(",")][:50]
+
+    all_balances = []
+    for uid in id_list:
+        safe_uid = _sanitize_odata_string(uid)
+        params = {
+            "$filter": f"userId eq '{safe_uid}'",
+            "$format": "json",
+            "$top": "100"
+        }
+
+        result = _make_sf_odata_request(
+            instance, "/odata/v2/EmpTimeAccountBalance", data_center, environment,
+            auth_user_id, auth_password, params, request_id
+        )
+
+        if "error" in result:
+            all_balances.append({"user_id": uid, "error": result.get("error")})
+            continue
+
+        balances = []
+        for entry in result.get("d", {}).get("results", []):
+            balances.append({
+                "account_type": entry.get("timeAccountType") or entry.get("timeAccount"),
+                "balance": entry.get("balance"),
+                "as_of_date": entry.get("asOfAccountingPeriodEnd") or as_of_date or str(date.today()),
+            })
+
+        all_balances.append({
+            "user_id": uid,
+            "balances": balances,
+            "account_count": len(balances),
+        })
+
+    response_data = {
+        "employees": all_balances,
+        "count": len(all_balances),
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_time_off_balances",
+        instance=instance, status="success",
+        details={"employees_queried": len(all_balances)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_upcoming_time_off(
+    instance: str,
+    start_date: str,
+    end_date: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    department: str = "",
+    manager_id: str = "",
+    status: str = "approved",
+    top: int = 200
+) -> dict[str, Any]:
+    """
+    See who is out or taking time off in a date range (team absence calendar).
+
+    Shows all approved (or pending) absences for a period. Filter by department
+    or manager to see just your team. Useful for scheduling meetings and
+    planning coverage.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        start_date: Start of date range (YYYY-MM-DD)
+        end_date: End of date range (YYYY-MM-DD)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        department: Filter by department name or code
+        manager_id: Filter to a specific manager's team
+        status: Filter by approval status: 'approved', 'pending', or 'all' (default: 'approved')
+        top: Maximum results (default: 200, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time_ts = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_upcoming_time_off",
+        instance=instance, status="started",
+        details={"start_date": start_date, "end_date": end_date, "department": department},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_date(start_date, "start_date")
+        _validate_date(end_date, "end_date")
+        if manager_id:
+            _validate_identifier(manager_id, "manager_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_upcoming_time_off",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time_ts) * 1000)
+        return {"error": str(e)}
+
+    # Build filter for EmployeeTime
+    filters = [
+        f"startDate le datetime'{end_date}T23:59:59'",
+        f"endDate ge datetime'{start_date}T00:00:00'"
+    ]
+
+    if status == "approved":
+        filters.append("approvalStatus eq 'APPROVED'")
+    elif status == "pending":
+        filters.append("approvalStatus eq 'PENDING'")
+
+    params = {
+        "$filter": " and ".join(filters),
+        "$select": "userId,startDate,endDate,timeType,approvalStatus,quantityInDays,quantityInHours",
+        "$expand": "userIdNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "startDate asc"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/EmployeeTime", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_upcoming_time_off",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time_ts) * 1000)
+        return result
+
+    absences = []
+    for entry in result.get("d", {}).get("results", []):
+        user_nav = entry.get("userIdNav", {}) or {}
+        emp_department = user_nav.get("department", "")
+        emp_manager = user_nav.get("manager", "")
+
+        # Apply client-side filters if needed
+        if department and emp_department and department.lower() not in emp_department.lower():
+            continue
+        if manager_id and emp_manager and manager_id != emp_manager:
+            continue
+
+        absences.append({
+            "user_id": entry.get("userId"),
+            "employee_name": user_nav.get("displayName") or f"{user_nav.get('firstName', '')} {user_nav.get('lastName', '')}".strip() if user_nav else entry.get("userId"),
+            "department": emp_department,
+            "start_date": entry.get("startDate"),
+            "end_date": entry.get("endDate"),
+            "time_type": entry.get("timeType"),
+            "status": entry.get("approvalStatus"),
+            "days": entry.get("quantityInDays"),
+            "hours": entry.get("quantityInHours"),
+        })
+
+    response_data = {
+        "date_range": {"start": start_date, "end": end_date},
+        "absences": absences,
+        "count": len(absences),
+        "filters_applied": {
+            "status": status,
+            "department": department or None,
+            "manager_id": manager_id or None,
+        }
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_upcoming_time_off",
+        instance=instance, status="success",
+        details={"absences_returned": len(absences)},
+        request_id=request_id, duration_ms=(time.time() - start_time_ts) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_time_off_requests(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    user_id: str = "",
+    status: str = "pending",
+    from_date: str = "",
+    top: int = 50
+) -> dict[str, Any]:
+    """
+    View time-off requests for approval tracking.
+
+    Shows pending, approved, or rejected time-off requests. Filter by employee
+    or view all requests visible to you. Useful for managers reviewing approvals.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        user_id: Filter to a specific employee's requests (optional)
+        status: Filter by status: 'pending', 'approved', 'rejected', 'cancelled', or 'all' (default: 'pending')
+        from_date: Only show requests created on or after this date (YYYY-MM-DD)
+        top: Maximum results (default: 50, max: 200)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 200:
+        top = 200
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_time_off_requests",
+        instance=instance, status="started",
+        details={"user_id": user_id or "all", "status": status},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        if user_id:
+            _validate_identifier(user_id, "user_id")
+        if from_date:
+            _validate_date(from_date, "from_date")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_time_off_requests",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Build filter
+    filters = []
+
+    if user_id:
+        safe_uid = _sanitize_odata_string(user_id)
+        filters.append(f"userId eq '{safe_uid}'")
+
+    status_map = {
+        "pending": "PENDING",
+        "approved": "APPROVED",
+        "rejected": "REJECTED",
+        "cancelled": "CANCELLED",
+    }
+    if status != "all" and status in status_map:
+        filters.append(f"approvalStatus eq '{status_map[status]}'")
+
+    if from_date:
+        filters.append(f"createdDate ge datetime'{from_date}T00:00:00'")
+
+    params = {
+        "$select": "userId,startDate,endDate,timeType,approvalStatus,quantityInDays,quantityInHours,createdDate",
+        "$expand": "userIdNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "createdDate desc"
+    }
+
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/EmployeeTime", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_time_off_requests",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    requests_list = []
+    for entry in result.get("d", {}).get("results", []):
+        user_nav = entry.get("userIdNav", {}) or {}
+        requests_list.append({
+            "user_id": entry.get("userId"),
+            "employee_name": user_nav.get("displayName") or f"{user_nav.get('firstName', '')} {user_nav.get('lastName', '')}".strip() if user_nav else entry.get("userId"),
+            "start_date": entry.get("startDate"),
+            "end_date": entry.get("endDate"),
+            "time_type": entry.get("timeType"),
+            "status": entry.get("approvalStatus"),
+            "days": entry.get("quantityInDays"),
+            "hours": entry.get("quantityInHours"),
+            "submitted_date": entry.get("createdDate"),
+        })
+
+    response_data = {
+        "requests": requests_list,
+        "count": len(requests_list),
+        "filters_applied": {
+            "user_id": user_id or None,
+            "status": status,
+            "from_date": from_date or None,
+        }
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_time_off_requests",
+        instance=instance, status="success",
+        details={"requests_returned": len(requests_list)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+# =============================================================================
+# HR OPERATIONS TOOLS: Hiring & Onboarding
+# =============================================================================
+
+
+@mcp.tool()
+def get_open_requisitions(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    department: str = "",
+    hiring_manager_id: str = "",
+    location: str = "",
+    status: str = "open",
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    List job requisitions with status and hiring manager.
+
+    Shows open (or all) job requisitions for tracking the hiring pipeline.
+    Filter by department, hiring manager, or location.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        department: Filter by department
+        hiring_manager_id: Filter by hiring manager's user ID
+        location: Filter by work location
+        status: Requisition status: 'open', 'filled', 'closed', or 'all' (default: 'open')
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_open_requisitions",
+        instance=instance, status="started",
+        details={"department": department, "status": status},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        if hiring_manager_id:
+            _validate_identifier(hiring_manager_id, "hiring_manager_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_open_requisitions",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Build filter
+    filters = []
+
+    status_map = {
+        "open": "Open",
+        "filled": "Filled",
+        "closed": "Closed",
+    }
+    if status != "all" and status in status_map:
+        safe_status = _sanitize_odata_string(status_map[status])
+        filters.append(f"status eq '{safe_status}'")
+
+    if department:
+        safe_dept = _sanitize_odata_string(department)
+        filters.append(f"department eq '{safe_dept}'")
+
+    if hiring_manager_id:
+        safe_hm = _sanitize_odata_string(hiring_manager_id)
+        filters.append(f"hiringManagerId eq '{safe_hm}'")
+
+    if location:
+        safe_loc = _sanitize_odata_string(location)
+        filters.append(f"location eq '{safe_loc}'")
+
+    params = {
+        "$select": "jobReqId,jobTitle,department,location,status,numberOpenings,hiringManagerId,recruiterName,createdDateTime,lastModifiedDateTime",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "createdDateTime desc"
+    }
+
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/JobRequisition", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_open_requisitions",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    requisitions = []
+    for entry in result.get("d", {}).get("results", []):
+        requisitions.append({
+            "requisition_id": entry.get("jobReqId"),
+            "job_title": entry.get("jobTitle"),
+            "department": entry.get("department"),
+            "location": entry.get("location"),
+            "status": entry.get("status"),
+            "openings": entry.get("numberOpenings"),
+            "hiring_manager_id": entry.get("hiringManagerId"),
+            "recruiter": entry.get("recruiterName"),
+            "created_date": entry.get("createdDateTime"),
+            "last_modified": entry.get("lastModifiedDateTime"),
+        })
+
+    response_data = {
+        "requisitions": requisitions,
+        "count": len(requisitions),
+        "filters_applied": {
+            "status": status,
+            "department": department or None,
+            "hiring_manager_id": hiring_manager_id or None,
+            "location": location or None,
+        }
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_open_requisitions",
+        instance=instance, status="success",
+        details={"requisitions_returned": len(requisitions)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_candidate_pipeline(
+    instance: str,
+    requisition_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    include_rejected: bool = False,
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    Track candidates for a job requisition through hiring stages.
+
+    Shows all applicants for a specific job requisition with their current
+    stage, application date, and status. Useful for hiring managers to see
+    the candidate funnel at a glance.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        requisition_id: The job requisition ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        include_rejected: If True, include rejected candidates (default: False)
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_candidate_pipeline",
+        instance=instance, status="started",
+        details={"requisition_id": requisition_id},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_identifier(requisition_id, "requisition_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_candidate_pipeline",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    safe_req_id = _sanitize_odata_string(requisition_id)
+    filter_expr = f"jobReqId eq '{safe_req_id}'"
+
+    if not include_rejected:
+        filter_expr += " and statusId ne 3"  # 3 is commonly Rejected
+
+    params = {
+        "$filter": filter_expr,
+        "$select": "applicationId,candidateId,jobReqId,statusId,applicationDate,lastModifiedDateTime",
+        "$expand": "candidateNav,statusNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "lastModifiedDateTime desc"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/JobApplication", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_candidate_pipeline",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    candidates = []
+    stage_counts = {}
+    for entry in result.get("d", {}).get("results", []):
+        candidate_nav = entry.get("candidateNav", {}) or {}
+        status_nav = entry.get("statusNav", {}) or {}
+        stage = status_nav.get("label") or status_nav.get("appStatusName") or str(entry.get("statusId", "Unknown"))
+
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+
+        candidates.append({
+            "application_id": entry.get("applicationId"),
+            "candidate_id": entry.get("candidateId"),
+            "candidate_name": f"{candidate_nav.get('firstName', '')} {candidate_nav.get('lastName', '')}".strip() if candidate_nav else "Unknown",
+            "email": candidate_nav.get("email") if candidate_nav else None,
+            "current_stage": stage,
+            "application_date": entry.get("applicationDate"),
+            "last_updated": entry.get("lastModifiedDateTime"),
+        })
+
+    response_data = {
+        "requisition_id": requisition_id,
+        "candidates": candidates,
+        "count": len(candidates),
+        "by_stage": stage_counts,
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_candidate_pipeline",
+        instance=instance, status="success",
+        details={"requisition_id": requisition_id, "candidates_returned": len(candidates)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_new_hires(
+    instance: str,
+    start_date_from: str,
+    start_date_to: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    department: str = "",
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    List recent and upcoming new hires for onboarding planning.
+
+    Shows employees hired within a date range with their job details. Useful for
+    HR coordinators planning onboarding, equipment, and access provisioning.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        start_date_from: Show hires starting on or after this date (YYYY-MM-DD)
+        start_date_to: Show hires starting on or before this date (YYYY-MM-DD)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        department: Filter by department
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_new_hires",
+        instance=instance, status="started",
+        details={"start_date_from": start_date_from, "start_date_to": start_date_to},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_date(start_date_from, "start_date_from")
+        _validate_date(start_date_to, "start_date_to")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_new_hires",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Query users by hire date range
+    filters = [
+        f"hireDate ge datetime'{start_date_from}T00:00:00'",
+        f"hireDate le datetime'{start_date_to}T23:59:59'"
+    ]
+
+    if department:
+        safe_dept = _sanitize_odata_string(department)
+        filters.append(f"department eq '{safe_dept}'")
+
+    params = {
+        "$filter": " and ".join(filters),
+        "$select": "userId,firstName,lastName,displayName,email,hireDate,title,department,division,location,manager",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "hireDate asc"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/User", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_new_hires",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    new_hires = []
+    for entry in result.get("d", {}).get("results", []):
+        new_hires.append({
+            "user_id": entry.get("userId"),
+            "display_name": entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip(),
+            "email": entry.get("email"),
+            "hire_date": entry.get("hireDate"),
+            "title": entry.get("title"),
+            "department": entry.get("department"),
+            "division": entry.get("division"),
+            "location": entry.get("location"),
+            "manager_id": entry.get("manager"),
+        })
+
+    response_data = {
+        "new_hires": new_hires,
+        "count": len(new_hires),
+        "date_range": {"from": start_date_from, "to": start_date_to},
+        "filters_applied": {"department": department or None},
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_new_hires",
+        instance=instance, status="success",
+        details={"new_hires_returned": len(new_hires)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+# =============================================================================
+# HR OPERATIONS TOOLS: Compliance & Reporting
+# =============================================================================
+
+
+@mcp.tool()
+def get_terminations(
+    instance: str,
+    from_date: str,
+    to_date: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    department: str = "",
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    List terminated employees in a date range for exit processing and compliance.
+
+    Shows employees whose employment ended within the specified period. Useful for
+    exit processing, compliance reporting, and attrition analysis.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        from_date: Start of date range (YYYY-MM-DD)
+        to_date: End of date range (YYYY-MM-DD)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        department: Filter by department
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_terminations",
+        instance=instance, status="started",
+        details={"from_date": from_date, "to_date": to_date},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_date(from_date, "from_date")
+        _validate_date(to_date, "to_date")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_terminations",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Query EmpEmployment for terminated records
+    filters = [
+        f"endDate ge datetime'{from_date}T00:00:00'",
+        f"endDate le datetime'{to_date}T23:59:59'"
+    ]
+
+    params = {
+        "$filter": " and ".join(filters),
+        "$select": "userId,startDate,endDate,originalStartDate,lastDateWorked,payrollEndDate",
+        "$expand": "userNav,personNav,jobInfoNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "endDate desc"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/EmpEmployment", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_terminations",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    terminations = []
+    for entry in result.get("d", {}).get("results", []):
+        user_nav = entry.get("userNav", {}) or {}
+        person_nav = entry.get("personNav", {}) or {}
+        job_nav = entry.get("jobInfoNav", {}) or {}
+
+        # Handle jobInfoNav which may be a collection
+        job_info = {}
+        if isinstance(job_nav, dict) and "results" in job_nav:
+            jobs = job_nav["results"]
+            if jobs:
+                job_info = jobs[0]  # Most recent
+        elif isinstance(job_nav, dict):
+            job_info = job_nav
+
+        emp_department = job_info.get("department") or user_nav.get("department", "")
+
+        # Apply department filter if specified
+        if department and emp_department and department.lower() not in emp_department.lower():
+            continue
+
+        # Calculate tenure if possible
+        tenure_years = None
+        orig_start = entry.get("originalStartDate") or entry.get("startDate")
+        end_date_val = entry.get("endDate")
+        if orig_start and end_date_val:
+            try:
+                # Try parsing SAP date formats
+                start_str = orig_start if isinstance(orig_start, str) else str(orig_start)
+                end_str = end_date_val if isinstance(end_date_val, str) else str(end_date_val)
+                if "T" in start_str and "T" in end_str:
+                    start_dt = datetime.strptime(start_str[:10], "%Y-%m-%d")
+                    end_dt = datetime.strptime(end_str[:10], "%Y-%m-%d")
+                    tenure_years = round((end_dt - start_dt).days / 365.25, 1)
+            except (ValueError, TypeError):
+                pass
+
+        terminations.append({
+            "user_id": entry.get("userId"),
+            "display_name": user_nav.get("displayName") or f"{person_nav.get('firstName', '')} {person_nav.get('lastName', '')}".strip() or entry.get("userId"),
+            "department": emp_department,
+            "title": job_info.get("jobTitle"),
+            "original_start_date": entry.get("originalStartDate"),
+            "termination_date": entry.get("endDate"),
+            "last_date_worked": entry.get("lastDateWorked"),
+            "tenure_years": tenure_years,
+        })
+
+    response_data = {
+        "terminations": terminations,
+        "count": len(terminations),
+        "date_range": {"from": from_date, "to": to_date},
+        "filters_applied": {"department": department or None},
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_terminations",
+        instance=instance, status="success",
+        details={"terminations_returned": len(terminations)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_employees_missing_data(
+    instance: str,
+    check_fields: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    department: str = "",
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    Find employees with incomplete profiles for compliance audits.
+
+    Checks for missing email, phone, address, or emergency contact data across
+    active employees. Returns a list of employees with gaps and a compliance rate.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        check_fields: Comma-separated fields to check: 'email', 'phone', 'address', 'emergency_contact' (e.g., 'email,phone')
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        department: Filter by department
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_employees_missing_data",
+        instance=instance, status="started",
+        details={"check_fields": check_fields},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_employees_missing_data",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    valid_fields = {"email", "phone", "address", "emergency_contact"}
+    requested_fields = [f.strip().lower() for f in check_fields.split(",")]
+    invalid = [f for f in requested_fields if f not in valid_fields]
+    if invalid:
+        return {"error": f"Invalid check_fields: {', '.join(invalid)}. Valid options: {', '.join(sorted(valid_fields))}"}
+
+    # Get active employees
+    user_filters = ["status eq 'active' or status eq 't'"]
+    if department:
+        safe_dept = _sanitize_odata_string(department)
+        user_filters.append(f"department eq '{safe_dept}'")
+
+    user_params = {
+        "$filter": " and ".join(user_filters),
+        "$select": "userId,firstName,lastName,displayName,email,department,hireDate",
+        "$format": "json",
+        "$top": str(min(top * 2, 1000))  # Fetch more to account for filtering
+    }
+
+    user_result = _make_sf_odata_request(
+        instance, "/odata/v2/User", data_center, environment,
+        auth_user_id, auth_password, user_params, request_id
+    )
+
+    if "error" in user_result:
+        _audit_log(event_type="tool_invocation", tool_name="get_employees_missing_data",
+                   instance=instance, status="error", details={"error": user_result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return user_result
+
+    users = user_result.get("d", {}).get("results", [])
+    total_employees = len(users)
+
+    # Map fields to entities
+    field_entity_map = {
+        "email": "PerEmail",
+        "phone": "PerPhone",
+        "address": "PerAddress",
+        "emergency_contact": "PerEmergencyContacts",
+    }
+
+    # For each field, get employees who have data
+    employees_with_data = {}
+    for field in requested_fields:
+        entity = field_entity_map[field]
+        data_params = {
+            "$select": "personIdExternal",
+            "$format": "json",
+            "$top": "1000"
+        }
+        data_result = _make_sf_odata_request(
+            instance, f"/odata/v2/{entity}", data_center, environment,
+            auth_user_id, auth_password, data_params, request_id
+        )
+        if "error" not in data_result:
+            ids_with_data = set()
+            for entry in data_result.get("d", {}).get("results", []):
+                pid = entry.get("personIdExternal")
+                if pid:
+                    ids_with_data.add(pid)
+            employees_with_data[field] = ids_with_data
+        else:
+            employees_with_data[field] = set()
+
+    # Find employees missing data
+    employees_missing = []
+    for user in users:
+        uid = user.get("userId", "")
+        missing_fields = []
+        for field in requested_fields:
+            if field == "email" and not user.get("email"):
+                missing_fields.append("email")
+            elif field != "email" and uid not in employees_with_data.get(field, set()):
+                missing_fields.append(field)
+
+        if missing_fields:
+            employees_missing.append({
+                "user_id": uid,
+                "display_name": user.get("displayName") or f"{user.get('firstName', '')} {user.get('lastName', '')}".strip(),
+                "department": user.get("department"),
+                "hire_date": user.get("hireDate"),
+                "missing_fields": missing_fields,
+            })
+
+    # Cap results
+    employees_missing = employees_missing[:top]
+
+    compliance_rate = round(((total_employees - len(employees_missing)) / total_employees * 100), 1) if total_employees > 0 else 100.0
+
+    response_data = {
+        "employees_with_issues": employees_missing,
+        "count": len(employees_missing),
+        "total_employees_checked": total_employees,
+        "compliance_rate_percent": compliance_rate,
+        "fields_checked": requested_fields,
+        "filters_applied": {"department": department or None},
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_employees_missing_data",
+        instance=instance, status="success",
+        details={"issues_found": len(employees_missing), "compliance_rate": compliance_rate},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_anniversary_employees(
+    instance: str,
+    from_date: str,
+    to_date: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    milestone_years_only: bool = False,
+    department: str = "",
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    Find employees with upcoming work anniversaries for recognition programs.
+
+    Searches for active employees whose hire date anniversary falls within the
+    specified date range. Optionally filter to milestone years only (1, 5, 10, 15, 20, 25+).
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        from_date: Start of anniversary search range (YYYY-MM-DD)
+        to_date: End of anniversary search range (YYYY-MM-DD)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        milestone_years_only: If True, only show 1, 5, 10, 15, 20, 25+ year milestones
+        department: Filter by department
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_anniversary_employees",
+        instance=instance, status="started",
+        details={"from_date": from_date, "to_date": to_date, "milestone_years_only": milestone_years_only},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_date(from_date, "from_date")
+        _validate_date(to_date, "to_date")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_anniversary_employees",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Get active employees with hire dates
+    user_filters = ["status eq 'active' or status eq 't'"]
+    if department:
+        safe_dept = _sanitize_odata_string(department)
+        user_filters.append(f"department eq '{safe_dept}'")
+
+    params = {
+        "$filter": " and ".join(user_filters),
+        "$select": "userId,firstName,lastName,displayName,hireDate,department,title,manager",
+        "$format": "json",
+        "$top": "1000"
+    }
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/User", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_anniversary_employees",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    # Parse target date range
+    from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
+    to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
+    target_year = from_dt.year
+
+    milestone_years = {1, 5, 10, 15, 20, 25, 30, 35, 40}
+
+    anniversaries = []
+    for entry in result.get("d", {}).get("results", []):
+        hire_date_raw = entry.get("hireDate")
+        if not hire_date_raw:
+            continue
+
+        # Parse hire date (may be in various formats)
+        hire_dt = None
+        try:
+            if isinstance(hire_date_raw, str):
+                if "/Date(" in hire_date_raw:
+                    # SAP date format: /Date(timestamp)/
+                    ts = int(hire_date_raw.split("(")[1].split(")")[0].split("+")[0].split("-")[0])
+                    hire_dt = date.fromtimestamp(ts / 1000)
+                elif "T" in hire_date_raw:
+                    hire_dt = datetime.strptime(hire_date_raw[:10], "%Y-%m-%d").date()
+                else:
+                    hire_dt = datetime.strptime(hire_date_raw[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError, IndexError):
+            continue
+
+        if not hire_dt:
+            continue
+
+        # Calculate anniversary date in target year
+        try:
+            anniversary_dt = hire_dt.replace(year=target_year)
+        except ValueError:
+            # Handle Feb 29 leap year edge case
+            anniversary_dt = date(target_year, 3, 1)
+
+        # Check if anniversary falls in the range
+        if from_dt <= anniversary_dt <= to_dt:
+            years_of_service = target_year - hire_dt.year
+            if years_of_service <= 0:
+                continue
+
+            is_milestone = years_of_service in milestone_years
+
+            if milestone_years_only and not is_milestone:
+                continue
+
+            anniversaries.append({
+                "user_id": entry.get("userId"),
+                "display_name": entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip(),
+                "department": entry.get("department"),
+                "title": entry.get("title"),
+                "hire_date": hire_date_raw,
+                "anniversary_date": anniversary_dt.isoformat(),
+                "years_of_service": years_of_service,
+                "is_milestone": is_milestone,
+                "manager_id": entry.get("manager"),
+            })
+
+    # Sort by anniversary date
+    anniversaries.sort(key=lambda x: x.get("anniversary_date", ""))
+    anniversaries = anniversaries[:top]
+
+    milestone_count = sum(1 for a in anniversaries if a.get("is_milestone"))
+
+    response_data = {
+        "anniversaries": anniversaries,
+        "count": len(anniversaries),
+        "milestone_count": milestone_count,
+        "date_range": {"from": from_date, "to": to_date},
+        "filters_applied": {
+            "milestone_years_only": milestone_years_only,
+            "department": department or None,
+        },
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_anniversary_employees",
+        instance=instance, status="success",
+        details={"anniversaries_found": len(anniversaries), "milestone_count": milestone_count},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+# =============================================================================
+# HR OPERATIONS TOOLS: Performance & Compensation
+# =============================================================================
+
+
+@mcp.tool()
+def get_performance_review_status(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    form_template_id: str = "",
+    department: str = "",
+    manager_id: str = "",
+    status: str = "",
+    top: int = 100
+) -> dict[str, Any]:
+    """
+    Track performance review form completion across the organization.
+
+    Shows the status of performance review forms (not started, in progress,
+    completed). Useful for HR to monitor review cycle progress and follow up
+    with managers who haven't completed reviews.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        form_template_id: Filter by form template ID
+        department: Filter by department (applied client-side)
+        manager_id: Filter by manager's user ID (applied client-side)
+        status: Filter by form status: 'not_started', 'in_progress', 'completed', or '' for all
+        top: Maximum results (default: 100, max: 500)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    if top > 500:
+        top = 500
+    if top < 1:
+        top = 1
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_performance_review_status",
+        instance=instance, status="started",
+        details={"form_template_id": form_template_id or "all", "status": status or "all"},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        if form_template_id:
+            _validate_identifier(form_template_id, "form_template_id")
+        if manager_id:
+            _validate_identifier(manager_id, "manager_id")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_performance_review_status",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    # Build filter for FormHeader
+    filters = []
+
+    if form_template_id:
+        safe_template = _sanitize_odata_string(form_template_id)
+        filters.append(f"formTemplateId eq '{safe_template}'")
+
+    # Map status to formDataStatus values
+    # Common values: 1=Not Started, 2=In Progress, 3=Completed, 4=Sent Back
+    status_map = {
+        "not_started": "1",
+        "in_progress": "2",
+        "completed": "3",
+    }
+    if status and status in status_map:
+        filters.append(f"formDataStatus eq {status_map[status]}")
+
+    params = {
+        "$select": "formDataId,formTemplateId,formTemplateName,formSubjectId,formDataStatus,formLastModifiedDate,formDueDate",
+        "$expand": "formSubjectIdNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "formLastModifiedDate desc"
+    }
+
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = _make_sf_odata_request(
+        instance, "/odata/v2/FormHeader", data_center, environment,
+        auth_user_id, auth_password, params, request_id
+    )
+
+    if "error" in result:
+        _audit_log(event_type="tool_invocation", tool_name="get_performance_review_status",
+                   instance=instance, status="error", details={"error": result.get("error")},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return result
+
+    # Map status codes to labels
+    status_labels = {"1": "Not Started", "2": "In Progress", "3": "Completed", "4": "Sent Back"}
+
+    reviews = []
+    status_counts = {}
+    for entry in result.get("d", {}).get("results", []):
+        subject_nav = entry.get("formSubjectIdNav", {}) or {}
+
+        # Apply client-side filters
+        emp_department = subject_nav.get("department", "")
+        emp_manager = subject_nav.get("manager", "")
+
+        if department and emp_department and department.lower() not in emp_department.lower():
+            continue
+        if manager_id and emp_manager and manager_id != emp_manager:
+            continue
+
+        form_status = str(entry.get("formDataStatus", ""))
+        status_label = status_labels.get(form_status, form_status)
+        status_counts[status_label] = status_counts.get(status_label, 0) + 1
+
+        reviews.append({
+            "form_id": entry.get("formDataId"),
+            "template_name": entry.get("formTemplateName"),
+            "subject_user_id": entry.get("formSubjectId"),
+            "subject_name": subject_nav.get("displayName") or f"{subject_nav.get('firstName', '')} {subject_nav.get('lastName', '')}".strip() if subject_nav else entry.get("formSubjectId"),
+            "department": emp_department,
+            "status": status_label,
+            "due_date": entry.get("formDueDate"),
+            "last_modified": entry.get("formLastModifiedDate"),
+        })
+
+    response_data = {
+        "reviews": reviews,
+        "count": len(reviews),
+        "by_status": status_counts,
+        "filters_applied": {
+            "form_template_id": form_template_id or None,
+            "department": department or None,
+            "manager_id": manager_id or None,
+            "status": status or "all",
+        },
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_performance_review_status",
+        instance=instance, status="success",
+        details={"reviews_returned": len(reviews), "by_status": status_counts},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
+    )
+
+    return response_data
+
+
+@mcp.tool()
+def get_compensation_details(
+    instance: str,
+    user_ids: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    effective_date: str = ""
+) -> dict[str, Any]:
+    """
+    Get compensation breakdown for employees including base pay and pay components.
+
+    Shows current compensation details with recurring and non-recurring pay
+    components. Useful for compensation reviews, equity analysis, and HR inquiries.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_ids: Employee user ID(s) - single ID or comma-separated (max 20)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        effective_date: Show compensation as of this date (YYYY-MM-DD). Defaults to latest.
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_compensation_details",
+        instance=instance, status="started",
+        details={"user_ids_count": len(user_ids.split(","))},
+        request_id=request_id
+    )
+
+    try:
+        _validate_identifier(instance, "instance")
+        _validate_ids(user_ids, "user_ids")
+        if effective_date:
+            _validate_date(effective_date, "effective_date")
+    except ValueError as e:
+        _audit_log(event_type="validation_error", tool_name="get_compensation_details",
+                   instance=instance, status="failure", details={"error": str(e)},
+                   request_id=request_id, duration_ms=(time.time() - start_time) * 1000)
+        return {"error": str(e)}
+
+    id_list = [uid.strip() for uid in user_ids.split(",")][:20]
+
+    all_compensation = []
+    for uid in id_list:
+        safe_uid = _sanitize_odata_string(uid)
+        filter_expr = f"userId eq '{safe_uid}'"
+
+        if effective_date:
+            filter_expr += f" and startDate le datetime'{effective_date}T23:59:59'"
+
+        params = {
+            "$filter": filter_expr,
+            "$select": "userId,startDate,payGroup,payGrade,compensatedHours",
+            "$expand": "empPayCompRecurringNav,empPayCompNonRecurringNav",
+            "$format": "json",
+            "$top": "5",
+            "$orderby": "startDate desc"
+        }
+
+        result = _make_sf_odata_request(
+            instance, "/odata/v2/EmpCompensation", data_center, environment,
+            auth_user_id, auth_password, params, request_id
+        )
+
+        if "error" in result:
+            all_compensation.append({"user_id": uid, "error": result.get("error")})
+            continue
+
+        records = result.get("d", {}).get("results", [])
+        if not records:
+            all_compensation.append({"user_id": uid, "compensation": None, "message": "No compensation records found"})
+            continue
+
+        latest = records[0]
+        comp_data = {
+            "user_id": uid,
+            "effective_date": latest.get("startDate"),
+            "pay_group": latest.get("payGroup"),
+            "pay_grade": latest.get("payGrade"),
+            "compensated_hours": latest.get("compensatedHours"),
+        }
+
+        # Extract recurring pay components
+        recurring_nav = latest.get("empPayCompRecurringNav", {})
+        if isinstance(recurring_nav, dict) and "results" in recurring_nav:
+            comp_data["recurring_components"] = [
+                {
+                    "pay_component": r.get("payComponent"),
+                    "amount": r.get("paycompvalue"),
+                    "currency": r.get("currencyCode"),
+                    "frequency": r.get("frequency"),
+                }
+                for r in recurring_nav["results"]
+            ]
+
+        # Extract non-recurring pay components
+        non_recurring_nav = latest.get("empPayCompNonRecurringNav", {})
+        if isinstance(non_recurring_nav, dict) and "results" in non_recurring_nav:
+            comp_data["non_recurring_components"] = [
+                {
+                    "pay_component": r.get("payComponent"),
+                    "amount": r.get("value"),
+                    "currency": r.get("currencyCode"),
+                }
+                for r in non_recurring_nav["results"]
+            ]
+
+        all_compensation.append(comp_data)
+
+    response_data = {
+        "employees": all_compensation,
+        "count": len(all_compensation),
+    }
+
+    _audit_log(
+        event_type="tool_invocation", tool_name="get_compensation_details",
+        instance=instance, status="success",
+        details={"employees_queried": len(all_compensation)},
+        request_id=request_id, duration_ms=(time.time() - start_time) * 1000
     )
 
     return response_data
