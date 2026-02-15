@@ -1033,18 +1033,84 @@ curl http://localhost:8080/mcp
 
 ---
 
-## Project Structure
+## Architecture
+
+### Project Structure
 
 ```
 sf-mcp/
-├── main.py              # MCP server with 29 tools
-├── pyproject.toml       # Project dependencies
-├── uv.lock              # Dependency lock file
-├── Dockerfile           # Container image for Cloud Run
-├── .env                 # Local credentials (gitignored)
-├── .gitignore           # Git ignore rules
-└── README.md            # This documentation
+├── main.py                          # Slim entry point (~40 lines)
+├── sf_mcp/                          # Core package
+│   ├── __init__.py                  # Re-exports mcp instance
+│   ├── server.py                    # FastMCP instance creation
+│   ├── config.py                    # DC mappings, constants, get_api_host()
+│   ├── logging_config.py            # CloudLoggingFormatter, audit_log()
+│   ├── validation.py                # Input validators with registry pattern
+│   ├── auth.py                      # Credentials, API key, middleware
+│   ├── client.py                    # OData/metadata/service-doc HTTP clients
+│   ├── xml_utils.py                 # Safe XML parsing (defusedxml), date parsing
+│   ├── decorators.py                # sf_tool decorator (cross-cutting concerns)
+│   ├── dependencies.py              # FastMCP Depends() DI for schema exclusion
+│   └── tools/                       # Tool modules (29 tools across 8 files)
+│       ├── __init__.py              # Imports all modules to trigger registration
+│       ├── configuration.py         # get_configuration, compare_configurations, list_entities
+│       ├── permissions.py           # 7 RBP security tools
+│       ├── audit.py                 # get_role_history, get_role_assignment_history
+│       ├── query.py                 # query_odata, get_picklist_values
+│       ├── employee.py              # Profile, search, history, team roster
+│       ├── time_off.py              # Balances, upcoming absences, requests
+│       ├── recruiting.py            # Requisitions, pipeline, new hires
+│       └── compliance.py            # Terminations, missing data, anniversaries, reviews, comp
+├── tests/                           # Test suite (72 tests)
+│   ├── conftest.py                  # Shared fixtures
+│   ├── test_config.py              # DC mapping & constant tests
+│   ├── test_validation.py          # All validator tests
+│   ├── test_client.py              # Mocked HTTP client tests
+│   └── test_decorators.py          # sf_tool decorator behavior tests
+├── pyproject.toml                   # Dependencies & pytest config
+├── Dockerfile                       # Container image for Cloud Run
+└── README.md                        # This documentation
 ```
+
+### Design Principles
+
+**Modular decomposition**: The original 4,778-line monolithic `main.py` has been decomposed into focused modules with single responsibilities. Production code reduced by ~50%.
+
+**sf_tool decorator**: Eliminates ~400 lines of repeated boilerplate across 29 tools. Each tool previously duplicated request ID generation, timing, audit logging, input validation, credential checking, and error handling. The decorator centralizes these cross-cutting concerns:
+
+```python
+@mcp.tool()
+@sf_tool("get_rbp_roles")
+def get_rbp_roles(
+    instance: str, data_center: str, environment: str,
+    auth_user_id: str, auth_password: str,
+    include_description: bool = False,
+    *, request_id: str = RequestId(), start_time: float = StartTime(), api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    # Only business logic here - no boilerplate
+    ...
+```
+
+**FastMCP Depends() injection**: Internal parameters (`request_id`, `start_time`, `api_host`) are hidden from the MCP tool schema using FastMCP's dependency injection system. The `Depends()` pattern replaces the deprecated `exclude_args` parameter.
+
+**Validator registry**: Input validators are registered by name in a `VALIDATORS` dict, allowing the `sf_tool` decorator to apply additional validation via a declarative `validate={"locale": "locale"}` parameter.
+
+**Consolidated HTTP clients**: Three request patterns (JSON OData, XML metadata, service document) are unified in `client.py` with shared auth, timeout, error handling, and audit logging.
+
+### Module Responsibilities
+
+| Module | Purpose |
+|--------|---------|
+| `config.py` | 50+ data center mappings, named constants, `get_api_host()` |
+| `validation.py` | 10 regex-based validators + registry pattern |
+| `logging_config.py` | Cloud Logging-compatible JSON formatter, audit trail |
+| `auth.py` | Credential resolution, API key middleware |
+| `client.py` | OData request, metadata request, service doc request |
+| `xml_utils.py` | XXE-safe XML parsing, SAP date parsing |
+| `decorators.py` | `sf_tool` decorator for cross-cutting concerns |
+| `dependencies.py` | FastMCP `Depends()` DI markers |
+
+---
 
 ## Dependencies
 
@@ -1053,6 +1119,25 @@ sf-mcp/
 - `defusedxml>=0.7.0` - Safe XML parsing (XXE protection)
 - `python-dotenv>=1.0.0` - Environment variable loader
 - `uvicorn>=0.30.0` - ASGI server for HTTP transport
+
+### Dev Dependencies
+
+- `pytest>=8.0.0` - Test framework
+
+---
+
+## Testing
+
+Run the test suite:
+```bash
+uv run pytest tests/ -v
+```
+
+The test suite covers:
+- **Config**: DC mapping resolution, case insensitivity, aliases, error cases
+- **Validation**: All 10 validators with valid/invalid inputs, injection prevention
+- **Client**: Mocked HTTP responses (200, 401, 500, empty, connection error)
+- **Decorators**: Value injection, validation errors, max_top clamping, exception handling
 
 ---
 

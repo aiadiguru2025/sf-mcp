@@ -8,6 +8,7 @@ RUN pip install uv
 # Copy project files
 COPY pyproject.toml uv.lock ./
 COPY main.py ./
+COPY sf_mcp/ ./sf_mcp/
 
 # Install dependencies
 RUN uv sync --frozen --no-dev
