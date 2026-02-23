@@ -11,3 +11,18 @@ wheels/
 
 # Environment variables (contains secrets)
 .env
+
+# OS files
+.DS_Store
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Logs
+*.log

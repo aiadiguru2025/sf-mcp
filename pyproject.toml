@@ -1,7 +1,7 @@
 [project]
 name = "sf-mcp"
-version = "0.2.0"
-description = "SAP SuccessFactors MCP server with 29 HR tools"
+version = "0.3.0"
+description = "SAP SuccessFactors MCP server with 32 HR tools"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,4 +19,20 @@ pythonpath = ["."]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+ignore_missing_imports = true
