@@ -4,17 +4,26 @@ import re
 from datetime import datetime
 
 # Patterns for validating OData input parameters
-SAFE_IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]+$')
-SAFE_IDS_PATTERN = re.compile(r'^[a-zA-Z0-9_\-,]+$')
-SAFE_LOCALE_PATTERN = re.compile(r'^[a-zA-Z]{2}(-[a-zA-Z]{2})?$')
+SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]+$")
+SAFE_IDS_PATTERN = re.compile(r"^[a-zA-Z0-9_\-,]+$")
+SAFE_LOCALE_PATTERN = re.compile(r"^[a-zA-Z]{2}(-[a-zA-Z]{2})?$")
 SAFE_ENTITY_PATH_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\('[a-zA-Z0-9_\-]+'\))?$")
-SAFE_SELECT_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_,/]*$')
-SAFE_ORDERBY_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_,/ ]*(asc|desc)?$', re.IGNORECASE)
-SAFE_EXPAND_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_,/]*$')
+SAFE_SELECT_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_,/]*$")
+SAFE_ORDERBY_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_,/ ]*(asc|desc)?$", re.IGNORECASE)
+SAFE_EXPAND_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_,/]*$")
 
 ODATA_FILTER_BLOCKLIST = {
-    '$batch', '$metadata', '$value', '$count', '$ref', '$links',
-    'javascript:', 'script>', '<script', 'onerror', 'onload'
+    "$batch",
+    "$metadata",
+    "$value",
+    "$count",
+    "$ref",
+    "$links",
+    "javascript:",
+    "script>",
+    "<script",
+    "onerror",
+    "onload",
 }
 
 # Map of validator names to functions (used by the sf_tool decorator)
@@ -23,9 +32,11 @@ VALIDATORS = {}
 
 def _register(name):
     """Decorator to register a validator by name."""
+
     def decorator(fn):
         VALIDATORS[name] = fn
         return fn
+
     return decorator
 
 
@@ -41,7 +52,9 @@ def validate_identifier(value: str, field_name: str) -> str:
 def validate_ids(value: str, field_name: str) -> str:
     """Validate comma-separated IDs contain only safe characters."""
     if not value or not SAFE_IDS_PATTERN.match(value):
-        raise ValueError(f"Invalid {field_name}: must contain only alphanumeric characters, underscores, hyphens, and commas")
+        raise ValueError(
+            f"Invalid {field_name}: must contain only alphanumeric characters, underscores, hyphens, and commas"
+        )
     return value
 
 
@@ -62,7 +75,7 @@ def sanitize_odata_string(value: str) -> str:
 def validate_entity_path(value: str, field_name: str = "entity") -> str:
     """Validate OData entity path (e.g., 'User', 'User('admin')')."""
     if not value or not SAFE_ENTITY_PATH_PATTERN.match(value):
-        raise ValueError(f"Invalid entity: must be a valid OData entity name (e.g., 'User', 'Position')")
+        raise ValueError("Invalid entity: must be a valid OData entity name (e.g., 'User', 'Position')")
     return value
 
 
@@ -108,5 +121,5 @@ def validate_date(value: str, field_name: str) -> str:
     try:
         datetime.strptime(value, "%Y-%m-%d")
     except ValueError:
-        raise ValueError(f"Invalid {field_name}: must be in YYYY-MM-DD format (e.g., '2026-01-15')")
+        raise ValueError(f"Invalid {field_name}: must be in YYYY-MM-DD format (e.g., '2026-01-15')") from None
     return value

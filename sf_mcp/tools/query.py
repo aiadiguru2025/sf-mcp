@@ -2,17 +2,18 @@
 
 from typing import Any
 
-from sf_mcp.server import mcp
+from sf_mcp.client import make_odata_request, make_paginated_odata_request
+from sf_mcp.config import DEFAULT_MAX_PAGES
 from sf_mcp.decorators import sf_tool
-from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import (
     sanitize_odata_string,
     validate_entity_path,
-    validate_select,
-    validate_orderby,
     validate_expand,
     validate_odata_filter,
+    validate_orderby,
+    validate_select,
 )
 
 
@@ -31,6 +32,8 @@ def query_odata(
     expand: str = "",
     top: int = 100,
     skip: int = 0,
+    paginate: bool = False,
+    max_pages: int = DEFAULT_MAX_PAGES,
     *,
     request_id: str = RequestId(),
     start_time: float = StartTime(),
@@ -53,8 +56,10 @@ def query_odata(
         filter: OData filter expression (e.g., "department eq 'Engineering'")
         orderby: Sort order (e.g., "hireDate desc")
         expand: Navigation properties to expand (e.g., "manager,hr")
-        top: Maximum records (default 100, max 1000)
-        skip: Records to skip for pagination (default 0)
+        top: Maximum records (default 100, max 1000). Used as page size when paginate=True.
+        skip: Records to skip for pagination (default 0). Ignored when paginate=True.
+        paginate: If True, automatically fetch all pages of results (default: False)
+        max_pages: Maximum pages to fetch when paginate=True (default: 10, max: 50)
     """
     # Additional validation for query parameters
     try:
@@ -83,9 +88,34 @@ def query_odata(
         params["$skip"] = str(skip)
 
     endpoint = f"/odata/v2/{entity}"
+
+    if paginate:
+        result = make_paginated_odata_request(
+            instance,
+            endpoint,
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            params,
+            request_id,
+            page_size=top,
+            max_pages=max_pages,
+        )
+        if "error" in result:
+            return result
+        result["entity"] = entity
+        return result
+
     result = make_odata_request(
-        instance, endpoint, data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        endpoint,
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -165,8 +195,15 @@ def get_picklist_values(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/PickListValueV2", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/PickListValueV2",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+        cache_category="picklist",
     )
 
     if "error" in result:
@@ -176,8 +213,15 @@ def get_picklist_values(
             "$format": "json",
         }
         result = make_odata_request(
-            instance, "/odata/v2/PicklistOption", data_center, environment,
-            auth_user_id, auth_password, params_alt, request_id,
+            instance,
+            "/odata/v2/PicklistOption",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            params_alt,
+            request_id,
+            cache_category="picklist",
         )
         if "error" in result:
             return result
@@ -196,9 +240,7 @@ def get_picklist_values(
     }
 
 
-def _extract_picklist_values(
-    result: dict, locale: str, include_inactive: bool
-) -> tuple[list[dict], int]:
+def _extract_picklist_values(result: dict, locale: str, include_inactive: bool) -> tuple[list[dict], int]:
     """Extract and format picklist values from OData response."""
     values = []
     inactive_count = 0

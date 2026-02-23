@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from sf_mcp.server import mcp
-from sf_mcp.decorators import sf_tool
 from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.decorators import sf_tool
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import sanitize_odata_string
 
 
@@ -43,8 +43,15 @@ def get_rbp_roles(
 
     params = {"$select": select_fields, "$format": "json"}
     result = make_odata_request(
-        instance, "/odata/v2/RBPRole", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/RBPRole",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+        cache_category="permissions",
     )
 
     if "error" in result:
@@ -91,8 +98,14 @@ def get_role_permissions(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/getRolesPermissions", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/getRolesPermissions",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -137,8 +150,14 @@ def get_user_permissions(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/getUserPermissions", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/getUserPermissions",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -183,8 +202,14 @@ def get_user_roles(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/RBPBasicUserPermission", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/RBPBasicUserPermission",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -192,12 +217,14 @@ def get_user_roles(
 
     roles = []
     for entry in result.get("d", {}).get("results", []):
-        roles.append({
-            "roleId": entry.get("roleId"),
-            "roleName": entry.get("roleName"),
-            "roleDesc": entry.get("roleDesc"),
-            "userType": entry.get("userType"),
-        })
+        roles.append(
+            {
+                "roleId": entry.get("roleId"),
+                "roleName": entry.get("roleName"),
+                "roleDesc": entry.get("roleDesc"),
+                "userType": entry.get("userType"),
+            }
+        )
 
     if include_permissions and roles:
         role_ids = ",".join(str(r["roleId"]) for r in roles if r["roleId"])
@@ -208,8 +235,14 @@ def get_user_roles(
                 "$format": "json",
             }
             perm_result = make_odata_request(
-                instance, "/odata/v2/getRolesPermissions", data_center, environment,
-                auth_user_id, auth_password, perm_params, request_id,
+                instance,
+                "/odata/v2/getRolesPermissions",
+                data_center,
+                environment,
+                auth_user_id,
+                auth_password,
+                perm_params,
+                request_id,
             )
             if "error" not in perm_result:
                 for role in roles:
@@ -248,8 +281,15 @@ def get_permission_metadata(
     """
     params = {"locale": locale, "$format": "json"}
     result = make_odata_request(
-        instance, "/odata/v2/getPermissionMetadata", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/getPermissionMetadata",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+        cache_category="permissions",
     )
 
     if "error" in result:
@@ -296,8 +336,14 @@ def check_user_permission(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/getUserPermissions", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/getUserPermissions",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -355,8 +401,14 @@ def get_dynamic_groups(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/DynamicGroup", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/DynamicGroup",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:

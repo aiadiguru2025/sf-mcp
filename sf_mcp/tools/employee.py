@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from sf_mcp.server import mcp
-from sf_mcp.decorators import sf_tool
 from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.decorators import sf_tool
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import sanitize_odata_string
 
 
@@ -48,15 +48,24 @@ def get_employee_profile(
 
     params = {
         "$filter": f"userId eq '{safe_user_id}'",
-        "$select": "userId,username,firstName,lastName,displayName,email,hireDate,status,hr,manager,department,division,location,title",
+        "$select": (
+            "userId,username,firstName,lastName,displayName,email,hireDate,"
+            "status,hr,manager,department,division,location,title"
+        ),
         "$expand": "manager,hr",
         "$format": "json",
         "$top": "1",
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/User", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/User",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -107,8 +116,14 @@ def get_employee_profile(
             "$orderby": "startDate desc",
         }
         comp_result = make_odata_request(
-            instance, "/odata/v2/EmpCompensation", data_center, environment,
-            auth_user_id, auth_password, comp_params, request_id,
+            instance,
+            "/odata/v2/EmpCompensation",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            comp_params,
+            request_id,
         )
         if "error" not in comp_result:
             comp_records = comp_result.get("d", {}).get("results", [])
@@ -177,7 +192,11 @@ def search_employees(
 
     if search_text:
         safe_text = sanitize_odata_string(search_text)
-        filters.append(f"(substringof('{safe_text}',firstName) or substringof('{safe_text}',lastName) or substringof('{safe_text}',displayName))")
+        filters.append(
+            f"(substringof('{safe_text}',firstName) or "
+            f"substringof('{safe_text}',lastName) or "
+            f"substringof('{safe_text}',displayName))"
+        )
     if department:
         filters.append(f"department eq '{sanitize_odata_string(department)}'")
     if location:
@@ -190,7 +209,9 @@ def search_employees(
         filters.append("status eq 'inactive' or status eq 'f'")
 
     params = {
-        "$select": "userId,firstName,lastName,displayName,email,hireDate,status,title,department,division,location,manager",
+        "$select": (
+            "userId,firstName,lastName,displayName,email,hireDate,status,title,department,division,location,manager"
+        ),
         "$format": "json",
         "$top": str(top),
     }
@@ -198,8 +219,14 @@ def search_employees(
         params["$filter"] = " and ".join(filters)
 
     result = make_odata_request(
-        instance, "/odata/v2/User", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/User",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -267,15 +294,24 @@ def get_employee_history(
 
     params = {
         "$filter": f"userId eq '{safe_user_id}'",
-        "$select": "userId,startDate,endDate,jobTitle,department,location,position,managerId,employeeClass,eventReason,emplStatus",
+        "$select": (
+            "userId,startDate,endDate,jobTitle,department,location,"
+            "position,managerId,employeeClass,eventReason,emplStatus"
+        ),
         "$orderby": "startDate desc",
         "$format": "json",
         "$top": "100",
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/EmpJob", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/EmpJob",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -309,8 +345,14 @@ def get_employee_history(
             "$top": "50",
         }
         comp_result = make_odata_request(
-            instance, "/odata/v2/EmpCompensation", data_center, environment,
-            auth_user_id, auth_password, comp_params, request_id,
+            instance,
+            "/odata/v2/EmpCompensation",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            comp_params,
+            request_id,
         )
         if "error" not in comp_result:
             comp_history = []
@@ -323,7 +365,12 @@ def get_employee_history(
                 recurring = entry.get("empPayCompRecurringNav", {})
                 if isinstance(recurring, dict) and "results" in recurring:
                     comp_record["pay_components"] = [
-                        {"pay_component": r.get("payComponent"), "amount": r.get("paycompvalue"), "currency": r.get("currencyCode"), "frequency": r.get("frequency")}
+                        {
+                            "pay_component": r.get("payComponent"),
+                            "amount": r.get("paycompvalue"),
+                            "currency": r.get("currencyCode"),
+                            "frequency": r.get("frequency"),
+                        }
                         for r in recurring["results"]
                     ]
                 comp_history.append(comp_record)
@@ -374,8 +421,14 @@ def get_team_roster(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/User", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/User",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -414,19 +467,27 @@ def get_team_roster(
                 "$top": "50",
             }
             sub_result = make_odata_request(
-                instance, "/odata/v2/User", data_center, environment,
-                auth_user_id, auth_password, sub_params, request_id,
+                instance,
+                "/odata/v2/User",
+                data_center,
+                environment,
+                auth_user_id,
+                auth_password,
+                sub_params,
+                request_id,
             )
             if "error" not in sub_result:
                 for entry in sub_result.get("d", {}).get("results", []):
-                    indirect_reports.append({
-                        "user_id": entry.get("userId"),
-                        "display_name": _display_name(entry),
-                        "title": entry.get("title"),
-                        "department": entry.get("department"),
-                        "location": entry.get("location"),
-                        "reports_to": dr_id,
-                    })
+                    indirect_reports.append(
+                        {
+                            "user_id": entry.get("userId"),
+                            "display_name": _display_name(entry),
+                            "title": entry.get("title"),
+                            "department": entry.get("department"),
+                            "location": entry.get("location"),
+                            "reports_to": dr_id,
+                        }
+                    )
 
         response_data["indirect_reports"] = indirect_reports
         response_data["indirect_report_count"] = len(indirect_reports)

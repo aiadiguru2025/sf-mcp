@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from sf_mcp.server import mcp
-from sf_mcp.decorators import sf_tool
 from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.decorators import sf_tool
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import sanitize_odata_string
 from sf_mcp.xml_utils import parse_sap_date
 
@@ -73,8 +73,14 @@ def get_role_history(
         params["$filter"] = " and ".join(filters)
 
     result = make_odata_request(
-        instance, "/odata/v2/RBPRole", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/RBPRole",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -82,16 +88,18 @@ def get_role_history(
 
     history = []
     for entry in result.get("d", {}).get("results", []):
-        history.append({
-            "role_id": entry.get("roleId"),
-            "role_name": entry.get("roleName"),
-            "role_description": entry.get("roleDesc"),
-            "user_type": entry.get("userType"),
-            "last_modified_by": entry.get("lastModifiedBy"),
-            "last_modified_date": parse_sap_date(entry.get("lastModifiedDate", "")),
-            "created_by": entry.get("createdBy"),
-            "created_date": parse_sap_date(entry.get("createdDate", "")),
-        })
+        history.append(
+            {
+                "role_id": entry.get("roleId"),
+                "role_name": entry.get("roleName"),
+                "role_description": entry.get("roleDesc"),
+                "user_type": entry.get("userType"),
+                "last_modified_by": entry.get("lastModifiedBy"),
+                "last_modified_date": parse_sap_date(entry.get("lastModifiedDate", "")),
+                "created_by": entry.get("createdBy"),
+                "created_date": parse_sap_date(entry.get("createdDate", "")),
+            }
+        )
 
     return {
         "filters_applied": {"role_id": role_id, "role_name": role_name, "from_date": from_date, "to_date": to_date},
@@ -153,8 +161,14 @@ def get_role_assignment_history(
         params["$filter"] = " and ".join(filters)
 
     result = make_odata_request(
-        instance, "/odata/v2/RBPBasicUserPermission", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/RBPBasicUserPermission",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -162,17 +176,19 @@ def get_role_assignment_history(
 
     assignments = []
     for entry in result.get("d", {}).get("results", []):
-        assignments.append({
-            "user_id": entry.get("userId"),
-            "role_id": entry.get("roleId"),
-            "role_name": entry.get("roleName"),
-            "role_description": entry.get("roleDesc"),
-            "user_type": entry.get("userType"),
-            "assigned_by": entry.get("createdBy"),
-            "assigned_date": parse_sap_date(entry.get("createdDate", "")),
-            "last_modified_by": entry.get("lastModifiedBy"),
-            "last_modified_date": parse_sap_date(entry.get("lastModifiedDate", "")),
-        })
+        assignments.append(
+            {
+                "user_id": entry.get("userId"),
+                "role_id": entry.get("roleId"),
+                "role_name": entry.get("roleName"),
+                "role_description": entry.get("roleDesc"),
+                "user_type": entry.get("userType"),
+                "assigned_by": entry.get("createdBy"),
+                "assigned_date": parse_sap_date(entry.get("createdDate", "")),
+                "last_modified_by": entry.get("lastModifiedBy"),
+                "last_modified_date": parse_sap_date(entry.get("lastModifiedDate", "")),
+            }
+        )
 
     return {
         "filters_applied": {"role_id": role_id, "user_id": user_id, "from_date": from_date, "to_date": to_date},

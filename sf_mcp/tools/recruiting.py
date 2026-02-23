@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from sf_mcp.server import mcp
-from sf_mcp.decorators import sf_tool
 from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.decorators import sf_tool
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import sanitize_odata_string
 
 
@@ -61,7 +61,10 @@ def get_open_requisitions(
         filters.append(f"location eq '{sanitize_odata_string(location)}'")
 
     params = {
-        "$select": "jobReqId,jobTitle,department,location,status,numberOpenings,hiringManagerId,recruiterName,createdDateTime,lastModifiedDateTime",
+        "$select": (
+            "jobReqId,jobTitle,department,location,status,numberOpenings,"
+            "hiringManagerId,recruiterName,createdDateTime,lastModifiedDateTime"
+        ),
         "$format": "json",
         "$top": str(top),
         "$orderby": "createdDateTime desc",
@@ -70,8 +73,14 @@ def get_open_requisitions(
         params["$filter"] = " and ".join(filters)
 
     result = make_odata_request(
-        instance, "/odata/v2/JobRequisition", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/JobRequisition",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -152,8 +161,14 @@ def get_candidate_pipeline(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/JobApplication", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/JobApplication",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -168,15 +183,21 @@ def get_candidate_pipeline(
 
         stage_counts[stage] = stage_counts.get(stage, 0) + 1
 
-        candidates.append({
-            "application_id": entry.get("applicationId"),
-            "candidate_id": entry.get("candidateId"),
-            "candidate_name": f"{candidate_nav.get('firstName', '')} {candidate_nav.get('lastName', '')}".strip() if candidate_nav else "Unknown",
-            "email": candidate_nav.get("email") if candidate_nav else None,
-            "current_stage": stage,
-            "application_date": entry.get("applicationDate"),
-            "last_updated": entry.get("lastModifiedDateTime"),
-        })
+        candidates.append(
+            {
+                "application_id": entry.get("applicationId"),
+                "candidate_id": entry.get("candidateId"),
+                "candidate_name": (
+                    f"{candidate_nav.get('firstName', '')} {candidate_nav.get('lastName', '')}".strip()
+                    if candidate_nav
+                    else "Unknown"
+                ),
+                "email": candidate_nav.get("email") if candidate_nav else None,
+                "current_stage": stage,
+                "application_date": entry.get("applicationDate"),
+                "last_updated": entry.get("lastModifiedDateTime"),
+            }
+        )
 
     return {
         "requisition_id": requisition_id,
@@ -235,8 +256,14 @@ def get_new_hires(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/User", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/User",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:

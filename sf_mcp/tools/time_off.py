@@ -3,10 +3,10 @@
 from datetime import date
 from typing import Any
 
-from sf_mcp.server import mcp
-from sf_mcp.decorators import sf_tool
 from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.decorators import sf_tool
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import sanitize_odata_string
 
 
@@ -52,8 +52,14 @@ def get_time_off_balances(
         params = {"$filter": f"userId eq '{safe_uid}'", "$format": "json", "$top": "100"}
 
         result = make_odata_request(
-            instance, "/odata/v2/EmpTimeAccountBalance", data_center, environment,
-            auth_user_id, auth_password, params, request_id,
+            instance,
+            "/odata/v2/EmpTimeAccountBalance",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            params,
+            request_id,
         )
 
         if "error" in result:
@@ -131,8 +137,14 @@ def get_upcoming_time_off(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/EmployeeTime", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/EmployeeTime",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -149,17 +161,19 @@ def get_upcoming_time_off(
         if manager_id and emp_manager and manager_id != emp_manager:
             continue
 
-        absences.append({
-            "user_id": entry.get("userId"),
-            "employee_name": _display_name(user_nav) if user_nav else entry.get("userId"),
-            "department": emp_department,
-            "start_date": entry.get("startDate"),
-            "end_date": entry.get("endDate"),
-            "time_type": entry.get("timeType"),
-            "status": entry.get("approvalStatus"),
-            "days": entry.get("quantityInDays"),
-            "hours": entry.get("quantityInHours"),
-        })
+        absences.append(
+            {
+                "user_id": entry.get("userId"),
+                "employee_name": _display_name(user_nav) if user_nav else entry.get("userId"),
+                "department": emp_department,
+                "start_date": entry.get("startDate"),
+                "end_date": entry.get("endDate"),
+                "time_type": entry.get("timeType"),
+                "status": entry.get("approvalStatus"),
+                "days": entry.get("quantityInDays"),
+                "hours": entry.get("quantityInHours"),
+            }
+        )
 
     return {
         "date_range": {"start": start_date, "end": end_date},
@@ -226,8 +240,14 @@ def get_time_off_requests(
         params["$filter"] = " and ".join(filters)
 
     result = make_odata_request(
-        instance, "/odata/v2/EmployeeTime", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/EmployeeTime",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -236,17 +256,19 @@ def get_time_off_requests(
     requests_list = []
     for entry in result.get("d", {}).get("results", []):
         user_nav = entry.get("userIdNav", {}) or {}
-        requests_list.append({
-            "user_id": entry.get("userId"),
-            "employee_name": _display_name(user_nav) if user_nav else entry.get("userId"),
-            "start_date": entry.get("startDate"),
-            "end_date": entry.get("endDate"),
-            "time_type": entry.get("timeType"),
-            "status": entry.get("approvalStatus"),
-            "days": entry.get("quantityInDays"),
-            "hours": entry.get("quantityInHours"),
-            "submitted_date": entry.get("createdDate"),
-        })
+        requests_list.append(
+            {
+                "user_id": entry.get("userId"),
+                "employee_name": _display_name(user_nav) if user_nav else entry.get("userId"),
+                "start_date": entry.get("startDate"),
+                "end_date": entry.get("endDate"),
+                "time_type": entry.get("timeType"),
+                "status": entry.get("approvalStatus"),
+                "days": entry.get("quantityInDays"),
+                "hours": entry.get("quantityInHours"),
+                "submitted_date": entry.get("createdDate"),
+            }
+        )
 
     return {
         "requests": requests_list,

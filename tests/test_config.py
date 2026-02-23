@@ -3,12 +3,12 @@
 import pytest
 
 from sf_mcp.config import (
-    get_api_host,
-    VALID_DATA_CENTERS,
-    VALID_ENVIRONMENTS,
     DC_API_HOST_MAP,
     DEFAULT_TIMEOUT,
     MAX_TOP_STANDARD,
+    VALID_DATA_CENTERS,
+    VALID_ENVIRONMENTS,
+    get_api_host,
 )
 
 
@@ -70,7 +70,7 @@ class TestConstants:
         assert len(VALID_DATA_CENTERS) >= 18
 
     def test_valid_environments(self):
-        assert VALID_ENVIRONMENTS == {"production", "preview", "sales_demo"}
+        assert {"production", "preview", "sales_demo"} == VALID_ENVIRONMENTS
 
     def test_dc_map_entries(self):
         assert len(DC_API_HOST_MAP) > 50

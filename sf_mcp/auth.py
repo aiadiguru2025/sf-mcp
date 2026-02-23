@@ -3,7 +3,8 @@
 import os
 
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
 from sf_mcp.logging_config import audit_log, logger
 
@@ -30,13 +31,14 @@ def _get_mcp_api_key() -> str | None:
 
     try:
         from google.cloud import secretmanager
+
         project_id = os.environ.get("GCP_PROJECT_ID")
         if project_id:
             client = secretmanager.SecretManagerServiceClient()
             name = f"projects/{project_id}/secrets/mcp-api-key/versions/latest"
             response = client.access_secret_version(request={"name": name})
             return response.payload.data.decode("UTF-8")
-    except Exception:
+    except (ImportError, Exception):
         pass
 
     return None
@@ -58,7 +60,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     - Authorization: Bearer <key> header
     """
 
-    async def dispatch(self, request, call_next):
+    async def dispatch(self, request: Request, call_next) -> Response:
         if request.url.path in ["/health", "/healthz", "/"]:
             return await call_next(request)
 

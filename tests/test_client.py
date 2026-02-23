@@ -1,9 +1,8 @@
 """Tests for sf_mcp.client module."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from sf_mcp.client import make_odata_request, make_metadata_request, make_service_doc_request
+from sf_mcp.client import make_metadata_request, make_odata_request, make_service_doc_request
 
 
 class TestMakeOdataRequest:
@@ -16,8 +15,14 @@ class TestMakeOdataRequest:
         mock_get.return_value = mock_resp
 
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC55", "production",
-            "admin", "password123", {"$format": "json"}, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "admin",
+            "password123",
+            {"$format": "json"},
+            "test123",
         )
 
         assert "error" not in result
@@ -31,8 +36,14 @@ class TestMakeOdataRequest:
         mock_get.return_value = mock_resp
 
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC55", "production",
-            "admin", "wrong", None, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "admin",
+            "wrong",
+            None,
+            "test123",
         )
 
         assert result["error"] == "HTTP 401"
@@ -45,24 +56,42 @@ class TestMakeOdataRequest:
         mock_get.return_value = mock_resp
 
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC55", "production",
-            "admin", "password", None, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "admin",
+            "password",
+            None,
+            "test123",
         )
 
         assert "HTTP 500" in result["error"]
 
     def test_missing_credentials(self):
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC55", "production",
-            "", "", None, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "",
+            "",
+            None,
+            "test123",
         )
 
         assert "Missing credentials" in result["error"]
 
     def test_invalid_dc(self):
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC99", "production",
-            "admin", "password", None, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC99",
+            "production",
+            "admin",
+            "password",
+            None,
+            "test123",
         )
 
         assert "Invalid data_center" in result["error"]
@@ -75,8 +104,14 @@ class TestMakeOdataRequest:
         mock_get.return_value = mock_resp
 
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC55", "production",
-            "admin", "password", None, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "admin",
+            "password",
+            None,
+            "test123",
         )
 
         assert "Empty response" in result["error"]
@@ -84,11 +119,18 @@ class TestMakeOdataRequest:
     @patch("sf_mcp.client.requests.get")
     def test_request_exception(self, mock_get):
         import requests
+
         mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
         result = make_odata_request(
-            "test-instance", "/odata/v2/User", "DC55", "production",
-            "admin", "password", None, "test123",
+            "test-instance",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "admin",
+            "password",
+            None,
+            "test123",
         )
 
         assert "Request failed" in result["error"]
@@ -102,8 +144,14 @@ class TestMakeOdataRequest:
         mock_get.return_value = mock_resp
 
         make_odata_request(
-            "mycompany", "/odata/v2/User", "DC55", "production",
-            "admin", "password123", None, "test123",
+            "mycompany",
+            "/odata/v2/User",
+            "DC55",
+            "production",
+            "admin",
+            "password123",
+            None,
+            "test123",
         )
 
         call_args = mock_get.call_args
@@ -120,8 +168,13 @@ class TestMakeMetadataRequest:
         mock_get.return_value = mock_resp
 
         result = make_metadata_request(
-            "test-instance", "User", "DC55", "production",
-            "admin", "password", "test123",
+            "test-instance",
+            "User",
+            "DC55",
+            "production",
+            "admin",
+            "password",
+            "test123",
         )
 
         assert result is not None
@@ -129,8 +182,13 @@ class TestMakeMetadataRequest:
 
     def test_missing_credentials(self):
         result = make_metadata_request(
-            "test-instance", "User", "DC55", "production",
-            "", "", "test123",
+            "test-instance",
+            "User",
+            "DC55",
+            "production",
+            "",
+            "",
+            "test123",
         )
 
         assert "Missing credentials" in result["error"]
@@ -145,8 +203,12 @@ class TestMakeServiceDocRequest:
         mock_get.return_value = mock_resp
 
         result = make_service_doc_request(
-            "test-instance", "DC55", "production",
-            "admin", "password", "test123",
+            "test-instance",
+            "DC55",
+            "production",
+            "admin",
+            "password",
+            "test123",
         )
 
         assert "error" not in result

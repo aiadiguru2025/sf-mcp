@@ -2,11 +2,10 @@
 
 from typing import Any
 
-from sf_mcp.server import mcp
+from sf_mcp.client import make_metadata_request, make_service_doc_request
 from sf_mcp.decorators import sf_tool
-from sf_mcp.client import make_odata_request, make_metadata_request, make_service_doc_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
-from sf_mcp.xml_utils import xml_to_dict
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 
 
 def _extract_entity_fields(metadata: dict) -> dict[str, dict]:
@@ -42,7 +41,7 @@ def _extract_entity_fields(metadata: dict) -> dict[str, dict]:
                                 "nullable": prop.get("@Nullable", "true"),
                                 "maxLength": prop.get("@MaxLength", ""),
                             }
-    except Exception:
+    except (KeyError, TypeError, AttributeError):
         pass
     return fields
 
@@ -103,8 +102,13 @@ def get_configuration(
         dict containing entity metadata with field definitions
     """
     metadata = make_metadata_request(
-        instance, entity, data_center, environment,
-        auth_user_id, auth_password, request_id,
+        instance,
+        entity,
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        request_id,
     )
 
     if metadata is None:
@@ -164,12 +168,22 @@ def compare_configurations(
     """
     # Fetch metadata from both instances
     metadata1 = make_metadata_request(
-        instance1, entity, data_center1, environment1,
-        auth_user_id, auth_password, request_id,
+        instance1,
+        entity,
+        data_center1,
+        environment1,
+        auth_user_id,
+        auth_password,
+        request_id,
     )
     metadata2 = make_metadata_request(
-        instance2, entity, data_center2, environment2,
-        auth_user_id, auth_password, request_id,
+        instance2,
+        entity,
+        data_center2,
+        environment2,
+        auth_user_id,
+        auth_password,
+        request_id,
     )
 
     if metadata1 is None or (isinstance(metadata1, dict) and "error" in metadata1):
@@ -190,11 +204,13 @@ def compare_configurations(
     type_differences = []
     for field in sorted(in_both):
         if fields1[field]["type"] != fields2[field]["type"]:
-            type_differences.append({
-                "field": field,
-                f"{instance1}_type": fields1[field]["type"],
-                f"{instance2}_type": fields2[field]["type"],
-            })
+            type_differences.append(
+                {
+                    "field": field,
+                    f"{instance1}_type": fields1[field]["type"],
+                    f"{instance2}_type": fields2[field]["type"],
+                }
+            )
 
     total_unique_fields = len(fields1_names | fields2_names)
     matching_fields = len(in_both) - len(type_differences)
@@ -202,8 +218,18 @@ def compare_configurations(
 
     return {
         "entity": entity,
-        "instance1": {"name": instance1, "data_center": data_center1, "environment": environment1, "field_count": len(fields1)},
-        "instance2": {"name": instance2, "data_center": data_center2, "environment": environment2, "field_count": len(fields2)},
+        "instance1": {
+            "name": instance1,
+            "data_center": data_center1,
+            "environment": environment1,
+            "field_count": len(fields1),
+        },
+        "instance2": {
+            "name": instance2,
+            "data_center": data_center2,
+            "environment": environment2,
+            "field_count": len(fields2),
+        },
         "comparison": {
             "fields_only_in_instance1": only_in_1,
             "fields_only_in_instance2": only_in_2,
@@ -250,8 +276,12 @@ def list_entities(
         dict containing entity list, count, and optional category breakdown
     """
     data = make_service_doc_request(
-        instance, data_center, environment,
-        auth_user_id, auth_password, request_id,
+        instance,
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        request_id,
     )
 
     if "error" in data:
@@ -273,8 +303,6 @@ def list_entities(
     }
 
     if not category or category.lower() == "all":
-        response_data["by_category"] = {
-            k: len(v) for k, v in categories_dict.items()
-        }
+        response_data["by_category"] = {k: len(v) for k, v in categories_dict.items()}
 
     return response_data

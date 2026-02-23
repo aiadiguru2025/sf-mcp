@@ -3,11 +3,12 @@
 import functools
 import time
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from sf_mcp.config import get_api_host
 from sf_mcp.logging_config import audit_log
-from sf_mcp.validation import validate_identifier, VALIDATORS
+from sf_mcp.validation import VALIDATORS, validate_identifier
 
 
 def sf_tool(
@@ -37,6 +38,7 @@ def sf_tool(
         validate: Optional dict mapping param_name -> validator_name for additional validation
         max_top: Optional maximum value for a `top` parameter
     """
+
     def decorator(fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> dict[str, Any]:
@@ -50,10 +52,7 @@ def sf_tool(
                 kwargs["top"] = max(1, min(top, max_top))
 
             # Build safe details for logging (mask password)
-            log_details = {
-                k: v for k, v in kwargs.items()
-                if k not in ("auth_password",)
-            }
+            log_details = {k: v for k, v in kwargs.items() if k not in ("auth_password",)}
 
             # Log start
             audit_log(
@@ -136,4 +135,5 @@ def sf_tool(
             return result
 
         return wrapper
+
     return decorator

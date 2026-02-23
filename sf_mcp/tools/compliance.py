@@ -1,12 +1,12 @@
 """Compliance & reporting tools: terminations, missing data, anniversaries, performance, compensation."""
 
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any
 
-from sf_mcp.server import mcp
-from sf_mcp.decorators import sf_tool
 from sf_mcp.client import make_odata_request
-from sf_mcp.dependencies import RequestId, StartTime, ApiHost
+from sf_mcp.decorators import sf_tool
+from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.server import mcp
 from sf_mcp.validation import sanitize_odata_string
 from sf_mcp.xml_utils import parse_hire_date
 
@@ -61,8 +61,14 @@ def get_terminations(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/EmpEmployment", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/EmpEmployment",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -108,16 +114,18 @@ def get_terminations(
             or entry.get("userId")
         )
 
-        terminations.append({
-            "user_id": entry.get("userId"),
-            "display_name": display,
-            "department": emp_department,
-            "title": job_info.get("jobTitle"),
-            "original_start_date": entry.get("originalStartDate"),
-            "termination_date": entry.get("endDate"),
-            "last_date_worked": entry.get("lastDateWorked"),
-            "tenure_years": tenure_years,
-        })
+        terminations.append(
+            {
+                "user_id": entry.get("userId"),
+                "display_name": display,
+                "department": emp_department,
+                "title": job_info.get("jobTitle"),
+                "original_start_date": entry.get("originalStartDate"),
+                "termination_date": entry.get("endDate"),
+                "last_date_worked": entry.get("lastDateWorked"),
+                "tenure_years": tenure_years,
+            }
+        )
 
     return {
         "terminations": terminations,
@@ -162,7 +170,9 @@ def get_employees_missing_data(
     requested_fields = [f.strip().lower() for f in check_fields.split(",")]
     invalid = [f for f in requested_fields if f not in valid_fields]
     if invalid:
-        return {"error": f"Invalid check_fields: {', '.join(invalid)}. Valid options: {', '.join(sorted(valid_fields))}"}
+        return {
+            "error": (f"Invalid check_fields: {', '.join(invalid)}. Valid options: {', '.join(sorted(valid_fields))}")
+        }
 
     user_filters = ["status eq 'active' or status eq 't'"]
     if department:
@@ -176,8 +186,14 @@ def get_employees_missing_data(
     }
 
     user_result = make_odata_request(
-        instance, "/odata/v2/User", data_center, environment,
-        auth_user_id, auth_password, user_params, request_id,
+        instance,
+        "/odata/v2/User",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        user_params,
+        request_id,
     )
 
     if "error" in user_result:
@@ -198,8 +214,14 @@ def get_employees_missing_data(
         entity = field_entity_map[field]
         data_params = {"$select": "personIdExternal", "$format": "json", "$top": "1000"}
         data_result = make_odata_request(
-            instance, f"/odata/v2/{entity}", data_center, environment,
-            auth_user_id, auth_password, data_params, request_id,
+            instance,
+            f"/odata/v2/{entity}",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            data_params,
+            request_id,
         )
         if "error" not in data_result:
             ids_with_data = {
@@ -222,16 +244,21 @@ def get_employees_missing_data(
                 missing_fields.append(field)
 
         if missing_fields:
-            employees_missing.append({
-                "user_id": uid,
-                "display_name": _display_name(user),
-                "department": user.get("department"),
-                "hire_date": user.get("hireDate"),
-                "missing_fields": missing_fields,
-            })
+            employees_missing.append(
+                {
+                    "user_id": uid,
+                    "display_name": _display_name(user),
+                    "department": user.get("department"),
+                    "hire_date": user.get("hireDate"),
+                    "missing_fields": missing_fields,
+                }
+            )
 
     employees_missing = employees_missing[:top]
-    compliance_rate = round(((total_employees - len(employees_missing)) / total_employees * 100), 1) if total_employees > 0 else 100.0
+    if total_employees > 0:
+        compliance_rate = round((total_employees - len(employees_missing)) / total_employees * 100, 1)
+    else:
+        compliance_rate = 100.0
 
     return {
         "employees_with_issues": employees_missing,
@@ -288,8 +315,14 @@ def get_anniversary_employees(
     }
 
     result = make_odata_request(
-        instance, "/odata/v2/User", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/User",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -320,17 +353,19 @@ def get_anniversary_employees(
             if milestone_years_only and not is_milestone:
                 continue
 
-            anniversaries.append({
-                "user_id": entry.get("userId"),
-                "display_name": _display_name(entry),
-                "department": entry.get("department"),
-                "title": entry.get("title"),
-                "hire_date": entry.get("hireDate"),
-                "anniversary_date": anniversary_dt.isoformat(),
-                "years_of_service": years_of_service,
-                "is_milestone": is_milestone,
-                "manager_id": entry.get("manager"),
-            })
+            anniversaries.append(
+                {
+                    "user_id": entry.get("userId"),
+                    "display_name": _display_name(entry),
+                    "department": entry.get("department"),
+                    "title": entry.get("title"),
+                    "hire_date": entry.get("hireDate"),
+                    "anniversary_date": anniversary_dt.isoformat(),
+                    "years_of_service": years_of_service,
+                    "is_milestone": is_milestone,
+                    "manager_id": entry.get("manager"),
+                }
+            )
 
     anniversaries.sort(key=lambda x: x.get("anniversary_date", ""))
     anniversaries = anniversaries[:top]
@@ -389,7 +424,9 @@ def get_performance_review_status(
         filters.append(f"formDataStatus eq {status_map[status]}")
 
     params = {
-        "$select": "formDataId,formTemplateId,formTemplateName,formSubjectId,formDataStatus,formLastModifiedDate,formDueDate",
+        "$select": (
+            "formDataId,formTemplateId,formTemplateName,formSubjectId,formDataStatus,formLastModifiedDate,formDueDate"
+        ),
         "$expand": "formSubjectIdNav",
         "$format": "json",
         "$top": str(top),
@@ -399,8 +436,14 @@ def get_performance_review_status(
         params["$filter"] = " and ".join(filters)
 
     result = make_odata_request(
-        instance, "/odata/v2/FormHeader", data_center, environment,
-        auth_user_id, auth_password, params, request_id,
+        instance,
+        "/odata/v2/FormHeader",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
     )
 
     if "error" in result:
@@ -425,16 +468,18 @@ def get_performance_review_status(
         status_label = status_labels.get(form_status, form_status)
         status_counts[status_label] = status_counts.get(status_label, 0) + 1
 
-        reviews.append({
-            "form_id": entry.get("formDataId"),
-            "template_name": entry.get("formTemplateName"),
-            "subject_user_id": entry.get("formSubjectId"),
-            "subject_name": _display_name(subject_nav) if subject_nav else entry.get("formSubjectId"),
-            "department": emp_department,
-            "status": status_label,
-            "due_date": entry.get("formDueDate"),
-            "last_modified": entry.get("formLastModifiedDate"),
-        })
+        reviews.append(
+            {
+                "form_id": entry.get("formDataId"),
+                "template_name": entry.get("formTemplateName"),
+                "subject_user_id": entry.get("formSubjectId"),
+                "subject_name": _display_name(subject_nav) if subject_nav else entry.get("formSubjectId"),
+                "department": emp_department,
+                "status": status_label,
+                "due_date": entry.get("formDueDate"),
+                "last_modified": entry.get("formLastModifiedDate"),
+            }
+        )
 
     return {
         "reviews": reviews,
@@ -495,8 +540,14 @@ def get_compensation_details(
         }
 
         result = make_odata_request(
-            instance, "/odata/v2/EmpCompensation", data_center, environment,
-            auth_user_id, auth_password, params, request_id,
+            instance,
+            "/odata/v2/EmpCompensation",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            params,
+            request_id,
         )
 
         if "error" in result:
@@ -520,7 +571,12 @@ def get_compensation_details(
         recurring_nav = latest.get("empPayCompRecurringNav", {})
         if isinstance(recurring_nav, dict) and "results" in recurring_nav:
             comp_data["recurring_components"] = [
-                {"pay_component": r.get("payComponent"), "amount": r.get("paycompvalue"), "currency": r.get("currencyCode"), "frequency": r.get("frequency")}
+                {
+                    "pay_component": r.get("payComponent"),
+                    "amount": r.get("paycompvalue"),
+                    "currency": r.get("currencyCode"),
+                    "frequency": r.get("frequency"),
+                }
                 for r in recurring_nav["results"]
             ]
 

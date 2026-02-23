@@ -1,7 +1,7 @@
 """Safe XML parsing and SAP date utilities."""
 
 import re
-from datetime import datetime, date, timezone
+from datetime import date, datetime, timezone
 
 import defusedxml.ElementTree as DefusedET
 
@@ -16,7 +16,8 @@ def xml_to_dict(xml_content: bytes) -> dict:
     Returns:
         Dictionary representation of the XML
     """
-    def element_to_dict(element):
+
+    def element_to_dict(element) -> dict | str | None:
         """Recursively convert an XML element to a dictionary."""
         result = {}
 
@@ -30,8 +31,8 @@ def xml_to_dict(xml_content: bytes) -> dict:
             for child in children:
                 child_data = element_to_dict(child)
                 tag = child.tag
-                if '}' in tag:
-                    tag = tag.split('}')[1]
+                if "}" in tag:
+                    tag = tag.split("}")[1]
 
                 if tag in child_dict:
                     if not isinstance(child_dict[tag], list):
@@ -42,7 +43,7 @@ def xml_to_dict(xml_content: bytes) -> dict:
             result.update(child_dict)
         elif element.text and element.text.strip():
             if result:
-                result['#text'] = element.text.strip()
+                result["#text"] = element.text.strip()
             else:
                 return element.text.strip()
 
@@ -51,8 +52,8 @@ def xml_to_dict(xml_content: bytes) -> dict:
     root = DefusedET.fromstring(xml_content)
 
     root_tag = root.tag
-    if '}' in root_tag:
-        root_tag = root_tag.split('}')[1]
+    if "}" in root_tag:
+        root_tag = root_tag.split("}")[1]
 
     return {root_tag: element_to_dict(root)}
 
@@ -75,7 +76,7 @@ def parse_sap_date(date_str: str) -> str:
     if not date_str:
         return ""
     date_str = str(date_str)
-    match = re.search(r'/Date\((\d+)\)/', date_str)
+    match = re.search(r"/Date\((\d+)\)/", date_str)
     if match:
         timestamp_ms = int(match.group(1))
         dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
