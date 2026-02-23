@@ -1,6 +1,6 @@
 # SF-MCP: SAP SuccessFactors MCP Server
 
-A secure Model Context Protocol (MCP) server providing 29 tools for querying and managing SAP SuccessFactors via OData APIs.
+A secure Model Context Protocol (MCP) server providing 32 tools for querying and managing SAP SuccessFactors via OData APIs.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 ## Features
 
-### Tools (29 total)
+### Tools (32 total)
 
 | Category | Tool | Description |
 |----------|------|-------------|
@@ -41,6 +41,9 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 | **Compliance** | `get_anniversary_employees` | Find upcoming work anniversaries for recognition |
 | **Performance** | `get_performance_review_status` | Track review form completion across the org |
 | **Compensation** | `get_compensation_details` | Get compensation breakdown with pay components |
+| **Admin** | `get_api_quota_status` | Check API rate limit usage per instance |
+| **Admin** | `get_cache_status` | View cache hit rates and entry counts |
+| **Admin** | `clear_cache` | Clear cached responses (per-instance or all) |
 
 ### Security Features
 
@@ -48,6 +51,28 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 - **XXE Protection**: Uses `defusedxml` library for safe XML parsing
 - **Audit Logging**: JSON-structured logs compatible with Cloud Logging
 - **Per-Request Authentication**: Credentials required on every tool call (no stored defaults)
+
+### Rate Limiting
+
+- **Sliding window** algorithm tracks requests per instance over a configurable time window
+- **429 retry** — automatic retry with exponential backoff when the SF API returns HTTP 429
+- **Configurable** via environment variables: `SF_RATE_LIMIT` (default 100), `SF_RATE_LIMIT_WINDOW` (default 60s), `SF_RATE_LIMIT_MAX_RETRIES` (default 3)
+- **Warning threshold** logs alerts when usage exceeds 80% of the limit (configurable via `SF_RATE_LIMIT_WARN_THRESHOLD`)
+
+### Response Caching
+
+- **Category-based TTLs** — metadata (1h), service docs (1h), picklists (30m), permissions (1h), default (disabled)
+- **Cache keys** use SHA-256 of (instance, endpoint, params) — credentials are never included in keys
+- **Auto-eviction** removes the oldest 10% of entries when `SF_CACHE_MAX_ENTRIES` (default 1000) is reached
+- **Audit logging** on all cache operations for observability
+- Use `clear_cache` tool or `get_cache_status` tool for runtime management
+
+### Automatic Pagination
+
+- Set `paginate=True` on `query_odata` to automatically fetch multiple pages of results
+- Configurable `max_pages` per request (default 10, max 50)
+- Returns partial results with error details if a mid-pagination API error occurs
+- Manages `$skip`/`$top` internally — existing values in params are overridden
 
 ## Prerequisites
 
@@ -198,7 +223,7 @@ Completely quit and restart Claude Desktop for the changes to take effect.
 
 #### Step 5: Verify the Connection
 
-In Claude Desktop, you should see the MCP tools icon (hammer) in the input area. Click it to see the 29 SuccessFactors tools available.
+In Claude Desktop, you should see the MCP tools icon (hammer) in the input area. Click it to see the 32 SuccessFactors tools available.
 
 **Note:** Credentials (`auth_user_id` and `auth_password`) must be provided on each tool call - they are not stored in the configuration.
 
@@ -1047,11 +1072,13 @@ sf-mcp/
 │   ├── logging_config.py            # CloudLoggingFormatter, audit_log()
 │   ├── validation.py                # Input validators with registry pattern
 │   ├── auth.py                      # Credentials, API key, middleware
+│   ├── rate_limiter.py               # Sliding-window rate limiter (per-instance)
+│   ├── cache.py                     # TTL-based response cache with categories
 │   ├── client.py                    # OData/metadata/service-doc HTTP clients
 │   ├── xml_utils.py                 # Safe XML parsing (defusedxml), date parsing
 │   ├── decorators.py                # sf_tool decorator (cross-cutting concerns)
 │   ├── dependencies.py              # FastMCP Depends() DI for schema exclusion
-│   └── tools/                       # Tool modules (29 tools across 8 files)
+│   └── tools/                       # Tool modules (32 tools across 9 files)
 │       ├── __init__.py              # Imports all modules to trigger registration
 │       ├── configuration.py         # get_configuration, compare_configurations, list_entities
 │       ├── permissions.py           # 7 RBP security tools
@@ -1060,12 +1087,17 @@ sf-mcp/
 │       ├── employee.py              # Profile, search, history, team roster
 │       ├── time_off.py              # Balances, upcoming absences, requests
 │       ├── recruiting.py            # Requisitions, pipeline, new hires
-│       └── compliance.py            # Terminations, missing data, anniversaries, reviews, comp
-├── tests/                           # Test suite (72 tests)
+│       ├── compliance.py            # Terminations, missing data, anniversaries, reviews, comp
+│       └── admin.py                 # Rate limit quota, cache status, cache clear
+├── tests/                           # Test suite (110 tests)
 │   ├── conftest.py                  # Shared fixtures
 │   ├── test_config.py              # DC mapping & constant tests
 │   ├── test_validation.py          # All validator tests
 │   ├── test_client.py              # Mocked HTTP client tests
+│   ├── test_client_rate_limit.py   # Rate limiting & 429 retry tests
+│   ├── test_cache.py              # Response cache tests
+│   ├── test_pagination.py         # Automatic pagination tests
+│   ├── test_rate_limiter.py       # Rate limiter unit tests
 │   └── test_decorators.py          # sf_tool decorator behavior tests
 ├── pyproject.toml                   # Dependencies & pytest config
 ├── Dockerfile                       # Container image for Cloud Run
@@ -1076,7 +1108,7 @@ sf-mcp/
 
 **Modular decomposition**: The original 4,778-line monolithic `main.py` has been decomposed into focused modules with single responsibilities. Production code reduced by ~50%.
 
-**sf_tool decorator**: Eliminates ~400 lines of repeated boilerplate across 29 tools. Each tool previously duplicated request ID generation, timing, audit logging, input validation, credential checking, and error handling. The decorator centralizes these cross-cutting concerns:
+**sf_tool decorator**: Eliminates ~400 lines of repeated boilerplate across 29 decorated tools. Each tool previously duplicated request ID generation, timing, audit logging, input validation, credential checking, and error handling. The decorator centralizes these cross-cutting concerns:
 
 ```python
 @mcp.tool()
@@ -1105,7 +1137,9 @@ def get_rbp_roles(
 | `validation.py` | 10 regex-based validators + registry pattern |
 | `logging_config.py` | Cloud Logging-compatible JSON formatter, audit trail |
 | `auth.py` | Credential resolution, API key middleware |
-| `client.py` | OData request, metadata request, service doc request |
+| `rate_limiter.py` | Sliding-window rate limiter, per-instance tracking |
+| `cache.py` | TTL-based response cache with category TTLs, eviction |
+| `client.py` | OData request, metadata request, service doc, paginated request |
 | `xml_utils.py` | XXE-safe XML parsing, SAP date parsing |
 | `decorators.py` | `sf_tool` decorator for cross-cutting concerns |
 | `dependencies.py` | FastMCP `Depends()` DI markers |
@@ -1123,6 +1157,8 @@ def get_rbp_roles(
 ### Dev Dependencies
 
 - `pytest>=8.0.0` - Test framework
+- `ruff>=0.9.0` - Linter and formatter
+- `mypy>=1.14.0` - Static type checker
 
 ---
 
@@ -1137,6 +1173,9 @@ The test suite covers:
 - **Config**: DC mapping resolution, case insensitivity, aliases, error cases
 - **Validation**: All 10 validators with valid/invalid inputs, injection prevention
 - **Client**: Mocked HTTP responses (200, 401, 500, empty, connection error)
+- **Rate Limiter**: Limit enforcement, sliding window, per-instance isolation, thread safety
+- **Cache**: Put/get, TTL expiry, category TTLs, invalidation, eviction, thread safety
+- **Pagination**: Single/multi page, max_pages limit, error handling, $skip increments
 - **Decorators**: Value injection, validation errors, max_top clamping, exception handling
 
 ---
