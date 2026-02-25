@@ -11,4 +11,5 @@ from sf_mcp.tools import (  # noqa: F401
     query,
     recruiting,
     time_off,
+    workflow,
 )

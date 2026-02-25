@@ -1,6 +1,6 @@
 # SF-MCP: SAP SuccessFactors MCP Server
 
-A secure Model Context Protocol (MCP) server providing 35 tools for querying and managing SAP SuccessFactors via OData APIs.
+A secure Model Context Protocol (MCP) server providing 37 tools for querying and managing SAP SuccessFactors via OData APIs.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 ## Features
 
-### Tools (35 total)
+### Tools (37 total)
 
 | Category | Tool | Description |
 |----------|------|-------------|
@@ -44,6 +44,8 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 | **Position Mgmt** | `get_position_details` | Get position details with incumbent, department, FTE |
 | **Position Mgmt** | `get_vacant_positions` | List vacant positions for headcount planning |
 | **Position Mgmt** | `get_org_chart` | Build org hierarchy from a position (up or down) |
+| **Workflow** | `get_pending_approvals` | Get pending workflow approval items for a user or globally |
+| **Workflow** | `get_workflow_history` | Audit trail of approval steps for workflow requests |
 | **Admin** | `get_api_quota_status` | Check API rate limit usage per instance |
 | **Admin** | `get_cache_status` | View cache hit rates and entry counts |
 | **Admin** | `clear_cache` | Clear cached responses (per-instance or all) |
