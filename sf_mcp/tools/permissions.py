@@ -195,58 +195,96 @@ def get_user_roles(
         auth_password: SuccessFactors password for authentication (required)
         include_permissions: If True, also fetches permissions for each role
     """
+    # Step 1: Get user's permissions via getUserPermissions (valid function import)
+    # This returns permission entries that include roleId, allowing us to derive assigned roles.
     safe_user_id = sanitize_odata_string(user_id)
-    params = {
-        "$filter": f"userId eq '{safe_user_id}'",
+    perm_params = {
+        "locale": "en-US",
+        "userId": f"'{safe_user_id}'",
         "$format": "json",
     }
 
-    result = make_odata_request(
+    perm_result = make_odata_request(
         instance,
-        "/odata/v2/RBPBasicUserPermission",
+        "/odata/v2/getUserPermissions",
         data_center,
         environment,
         auth_user_id,
         auth_password,
-        params,
+        perm_params,
         request_id,
     )
 
-    if "error" in result:
-        return result
+    if "error" in perm_result:
+        return perm_result
+
+    # Extract unique role IDs from permission entries
+    role_ids_seen: set[str] = set()
+    for entry in perm_result.get("d", {}).get("results", []):
+        rid = entry.get("roleId")
+        if rid:
+            role_ids_seen.add(str(rid))
+
+    if not role_ids_seen:
+        return {"user_id": user_id, "roles": [], "role_count": 0}
+
+    # Step 2: Fetch role details from RBPRole (valid entity)
+    role_filter = " or ".join(f"roleId eq '{sanitize_odata_string(rid)}'" for rid in sorted(role_ids_seen))
+    role_params = {
+        "$filter": role_filter,
+        "$select": "roleId,roleName,roleDesc,userType,lastModifiedDate",
+        "$format": "json",
+    }
+
+    role_result = make_odata_request(
+        instance,
+        "/odata/v2/RBPRole",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        role_params,
+        request_id,
+        cache_category="permissions",
+    )
 
     roles = []
-    for entry in result.get("d", {}).get("results", []):
-        roles.append(
-            {
-                "roleId": entry.get("roleId"),
-                "roleName": entry.get("roleName"),
-                "roleDesc": entry.get("roleDesc"),
-                "userType": entry.get("userType"),
-            }
-        )
+    if "error" not in role_result:
+        for entry in role_result.get("d", {}).get("results", []):
+            roles.append(
+                {
+                    "roleId": entry.get("roleId"),
+                    "roleName": entry.get("roleName"),
+                    "roleDesc": entry.get("roleDesc"),
+                    "userType": entry.get("userType"),
+                }
+            )
+    else:
+        # Fallback: return role IDs without details if RBPRole query fails
+        roles = [{"roleId": rid, "roleName": None, "roleDesc": None, "userType": None} for rid in sorted(role_ids_seen)]
 
+    # Step 3: Optionally fetch detailed permissions per role
     if include_permissions and roles:
-        role_ids = ",".join(str(r["roleId"]) for r in roles if r["roleId"])
-        if role_ids:
-            perm_params = {
+        role_id_str = ",".join(str(r["roleId"]) for r in roles if r["roleId"])
+        if role_id_str:
+            detail_params = {
                 "locale": "en-US",
-                "roleIds": f"'{role_ids}'",
+                "roleIds": f"'{role_id_str}'",
                 "$format": "json",
             }
-            perm_result = make_odata_request(
+            detail_result = make_odata_request(
                 instance,
                 "/odata/v2/getRolesPermissions",
                 data_center,
                 environment,
                 auth_user_id,
                 auth_password,
-                perm_params,
+                detail_params,
                 request_id,
             )
-            if "error" not in perm_result:
+            if "error" not in detail_result:
                 for role in roles:
-                    role["permissions"] = perm_result
+                    role["permissions"] = detail_result
 
     return {"user_id": user_id, "roles": roles, "role_count": len(roles)}
 
