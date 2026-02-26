@@ -7,6 +7,7 @@ from sf_mcp.tools import (  # noqa: F401
     configuration,
     employee,
     mdf,
+    monitoring,
     permissions,
     position,
     query,

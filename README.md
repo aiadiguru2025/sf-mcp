@@ -1,6 +1,6 @@
 # SF-MCP: SAP SuccessFactors MCP Server
 
-A secure Model Context Protocol (MCP) server providing 40 tools for querying and managing SAP SuccessFactors via OData APIs.
+A secure Model Context Protocol (MCP) server providing 43 tools for querying and managing SAP SuccessFactors via OData APIs.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 ## Features
 
-### Tools (40 total)
+### Tools (43 total)
 
 | Category | Tool | Description |
 |----------|------|-------------|
@@ -49,6 +49,9 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 | **MDF Objects** | `get_foundation_objects` | Query foundation objects (cost centers, departments, etc.) |
 | **Workflow** | `get_pending_approvals` | Get pending workflow approval items for a user or globally |
 | **Workflow** | `get_workflow_history` | Audit trail of approval steps for workflow requests |
+| **Monitoring** | `get_alert_notifications` | Retrieve system alerts and notifications |
+| **Monitoring** | `get_scheduled_job_status` | Monitor scheduled jobs and their last run status |
+| **Monitoring** | `get_integration_center_jobs` | Check status of Integration Center jobs |
 | **Admin** | `get_api_quota_status` | Check API rate limit usage per instance |
 | **Admin** | `get_cache_status` | View cache hit rates and entry counts |
 | **Admin** | `clear_cache` | Clear cached responses (per-instance or all) |
@@ -1086,7 +1089,7 @@ sf-mcp/
 │   ├── xml_utils.py                 # Safe XML parsing (defusedxml), date parsing
 │   ├── decorators.py                # sf_tool decorator (cross-cutting concerns)
 │   ├── dependencies.py              # FastMCP Depends() DI for schema exclusion
-│   └── tools/                       # Tool modules (40 tools across 12 files)
+│   └── tools/                       # Tool modules (43 tools across 13 files)
 │       ├── __init__.py              # Imports all modules to trigger registration
 │       ├── configuration.py         # get_configuration, compare_configurations, list_entities
 │       ├── permissions.py           # 7 RBP security tools
@@ -1099,6 +1102,7 @@ sf-mcp/
 │       ├── position.py              # Position details, vacancies, org chart
 │       ├── workflow.py              # Pending approvals, workflow history
 │       ├── mdf.py                   # MDF object definitions, queries, foundation objects
+│       ├── monitoring.py            # Alerts, scheduled jobs, integration center jobs
 │       └── admin.py                 # Rate limit quota, cache status, cache clear
 ├── tests/                           # Test suite (110 tests)
 │   ├── conftest.py                  # Shared fixtures
