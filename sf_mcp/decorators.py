@@ -70,7 +70,7 @@ def sf_tool(
                 if validate:
                     for param_name, validator_name in validate.items():
                         value = kwargs.get(param_name)
-                        if value is not None:
+                        if value is not None and value != "":
                             validator_fn = VALIDATORS.get(validator_name)
                             if validator_fn:
                                 validator_fn(value, param_name)

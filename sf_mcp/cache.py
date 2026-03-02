@@ -1,5 +1,6 @@
 """Thread-safe in-memory response cache with per-category TTL."""
 
+import copy
 import hashlib
 import json
 import threading
@@ -109,7 +110,7 @@ class ResponseCache:
                 },
                 request_id=request_id,
             )
-            return entry.data
+            return copy.deepcopy(entry.data)
 
     def put(
         self,
@@ -130,7 +131,7 @@ class ResponseCache:
         key = self.make_key(instance, endpoint, params)
         now = time.time()
         entry = CacheEntry(
-            data=data,
+            data=copy.deepcopy(data),
             created_at=now,
             expires_at=now + ttl,
             category=category,

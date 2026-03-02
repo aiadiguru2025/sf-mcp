@@ -60,6 +60,7 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 - **Input Validation**: Regex-based allowlist validation prevents OData injection attacks
 - **Filter Hardening**: OData filter blocklist checks raw, URL-decoded, and double-decoded input to prevent encoded bypass attempts; rejects control characters and null bytes
+- **MDF/Foundation Validation**: `query_mdf_object` validates object_name, filter, select, orderby, and effective_date; `get_foundation_objects` validates filter input
 - **Timing-Safe Auth**: API key comparison uses `hmac.compare_digest` to prevent timing-based side-channel attacks
 - **XXE Protection**: Uses `defusedxml` library for safe XML parsing
 - **Audit Logging**: JSON-structured logs compatible with Cloud Logging; sensitive fields (passwords, credentials) are automatically masked
@@ -77,9 +78,16 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 - **Category-based TTLs** — metadata (1h), service docs (1h), picklists (30m), permissions (1h), default (disabled)
 - **Cache keys** use SHA-256 of (instance, endpoint, params) — credentials are never included in keys
+- **Mutation-safe** — cached data is deep-copied on both store and retrieval to prevent callers from corrupting the cache
 - **Auto-eviction** removes the oldest 10% of entries when `SF_CACHE_MAX_ENTRIES` (default 1000) is reached
 - **Audit logging** on all cache operations for observability
 - Use `clear_cache` tool or `get_cache_status` tool for runtime management
+
+### Connection Pooling
+
+- HTTP requests use a shared `requests.Session` singleton for TCP connection reuse
+- Reduces latency for repeated calls to the same SAP SuccessFactors API host
+- Thread-safe initialization via double-checked locking
 
 ### Automatic Pagination
 
@@ -1224,12 +1232,14 @@ The server validates all inputs to prevent injection attacks. If you see validat
 
 ## Security Considerations
 
-- **Input Validation**: All parameters validated with regex patterns
+- **Input Validation**: All parameters validated with regex patterns; MDF/foundation queries validate filter, select, orderby, and entity paths
 - **XXE Protection**: XML parsing uses defusedxml library
 - **Audit Logging**: All tool invocations logged in JSON format
 - **Per-Request Authentication**: Credentials required on each tool call (no stored defaults)
 - **Credential Masking**: Sensitive fields automatically masked in logs
 - **Minimal Permissions**: Use dedicated API user with required permissions only
+- **Connection Pooling**: Shared HTTP session with connection reuse for performance and resource efficiency
+- **Cache Safety**: Deep-copied cached data prevents mutation-related bugs
 
 ---
 

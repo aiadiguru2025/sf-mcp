@@ -7,12 +7,9 @@ from sf_mcp.client import make_odata_request
 from sf_mcp.decorators import sf_tool
 from sf_mcp.dependencies import ApiHost, RequestId, StartTime
 from sf_mcp.server import mcp
+from sf_mcp.tools.utils import display_name as _display_name
 from sf_mcp.validation import sanitize_odata_string
 from sf_mcp.xml_utils import parse_hire_date
-
-
-def _display_name(entry: dict) -> str:
-    return entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip()
 
 
 @mcp.tool()
@@ -174,7 +171,7 @@ def get_employees_missing_data(
             "error": (f"Invalid check_fields: {', '.join(invalid)}. Valid options: {', '.join(sorted(valid_fields))}")
         }
 
-    user_filters = ["status eq 'active' or status eq 't'"]
+    user_filters = ["(status eq 'active' or status eq 't')"]
     if department:
         user_filters.append(f"department eq '{sanitize_odata_string(department)}'")
 
@@ -303,7 +300,7 @@ def get_anniversary_employees(
         department: Filter by department
         top: Maximum results (default: 100, max: 500)
     """
-    user_filters = ["status eq 'active' or status eq 't'"]
+    user_filters = ["(status eq 'active' or status eq 't')"]
     if department:
         user_filters.append(f"department eq '{sanitize_odata_string(department)}'")
 
@@ -330,7 +327,7 @@ def get_anniversary_employees(
 
     from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
     to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
-    target_year = from_dt.year
+    target_years = sorted(set(range(from_dt.year, to_dt.year + 1)))
     milestone_years = {1, 5, 10, 15, 20, 25, 30, 35, 40}
 
     anniversaries = []
@@ -339,12 +336,15 @@ def get_anniversary_employees(
         if not hire_dt:
             continue
 
-        try:
-            anniversary_dt = hire_dt.replace(year=target_year)
-        except ValueError:
-            anniversary_dt = date(target_year, 3, 1)  # Feb 29 leap year edge case
+        for target_year in target_years:
+            try:
+                anniversary_dt = hire_dt.replace(year=target_year)
+            except ValueError:
+                anniversary_dt = date(target_year, 3, 1)  # Feb 29 leap year edge case
 
-        if from_dt <= anniversary_dt <= to_dt:
+            if not (from_dt <= anniversary_dt <= to_dt):
+                continue
+
             years_of_service = target_year - hire_dt.year
             if years_of_service <= 0:
                 continue

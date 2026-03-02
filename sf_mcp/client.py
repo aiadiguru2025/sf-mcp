@@ -1,5 +1,6 @@
 """SuccessFactors OData API client with audit logging, rate limiting, and caching."""
 
+import threading
 import time
 import uuid
 from typing import Any
@@ -21,6 +22,20 @@ from sf_mcp.config import (
 from sf_mcp.logging_config import audit_log
 from sf_mcp.rate_limiter import RateLimitExceeded, get_rate_limiter
 from sf_mcp.xml_utils import xml_to_dict
+
+# Module-level session singleton for connection pooling
+_session: requests.Session | None = None
+_session_lock = threading.Lock()
+
+
+def get_session() -> requests.Session:
+    """Get or create the global requests.Session singleton for connection pooling."""
+    global _session
+    if _session is None:
+        with _session_lock:
+            if _session is None:
+                _session = requests.Session()
+    return _session
 
 
 def _execute_with_rate_limit(
@@ -144,7 +159,7 @@ def make_odata_request(
             user_id,
             req_id,
             endpoint,
-            lambda: requests.get(url, auth=credentials, headers=headers, params=params, timeout=DEFAULT_TIMEOUT),
+            lambda: get_session().get(url, auth=credentials, headers=headers, params=params, timeout=DEFAULT_TIMEOUT),
         )
 
         # Rate limiter returned an error dict
@@ -274,7 +289,7 @@ def make_metadata_request(
             user_id,
             req_id,
             cache_endpoint,
-            lambda: requests.get(url, auth=(username, password), timeout=DEFAULT_TIMEOUT),
+            lambda: get_session().get(url, auth=(username, password), timeout=DEFAULT_TIMEOUT),
         )
 
         if isinstance(response, dict):
@@ -362,7 +377,7 @@ def make_service_doc_request(
             user_id,
             req_id,
             cache_endpoint,
-            lambda: requests.get(
+            lambda: get_session().get(
                 url,
                 auth=(username, password),
                 headers={"Accept": "application/json"},

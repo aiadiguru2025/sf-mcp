@@ -127,10 +127,11 @@ def get_role_assignment_history(
     api_host: str = ApiHost(),
 ) -> dict[str, Any]:
     """
-    Get history of role assignments - who was granted roles and when.
+    Get role assignments for users, showing which roles are assigned.
 
-    This tool shows the assignment history of RBP roles to users,
-    helping audit who has been given access and by whom.
+    When user_id is provided, shows all roles assigned to that user via
+    getUserPermissions. When role_id is provided, shows role details and
+    modification history from RBPRole. At least one filter is required.
 
     Args:
         instance: The SuccessFactors instance/company ID
@@ -140,35 +141,94 @@ def get_role_assignment_history(
         auth_password: SuccessFactors password for authentication (required)
         role_id: Optional role ID to filter assignments for a specific role
         user_id: Optional user ID to filter assignments for a specific user
-        from_date: Optional start date filter (ISO format: YYYY-MM-DD)
-        to_date: Optional end date filter (ISO format: YYYY-MM-DD)
+        from_date: Optional start date filter (ISO format: YYYY-MM-DD, applied to role modification date)
+        to_date: Optional end date filter (ISO format: YYYY-MM-DD, applied to role modification date)
         top: Maximum records to return (default 100, max 500)
     """
-    filters = []
-    if role_id:
-        filters.append(f"roleId eq {sanitize_odata_string(role_id)}")
+    if not role_id and not user_id:
+        return {
+            "error": "At least one of role_id or user_id is required",
+            "message": "Provide a role ID to see role history, or a user ID to see their role assignments.",
+        }
+
+    # Step 1: If user_id provided, get their role assignments via getUserPermissions
+    user_role_ids: set[str] = set()
     if user_id:
-        filters.append(f"userId eq '{sanitize_odata_string(user_id)}'")
-    filters.extend(_build_date_range_filter("lastModifiedDate", from_date, to_date))
+        safe_user_id = sanitize_odata_string(user_id)
+        perm_params = {
+            "locale": "en-US",
+            "userId": f"'{safe_user_id}'",
+            "$format": "json",
+        }
+        perm_result = make_odata_request(
+            instance,
+            "/odata/v2/getUserPermissions",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            perm_params,
+            request_id,
+        )
+        if "error" in perm_result:
+            return perm_result
+
+        for entry in perm_result.get("d", {}).get("results", []):
+            rid = entry.get("roleId")
+            if rid:
+                user_role_ids.add(str(rid))
+
+        if not user_role_ids:
+            return {
+                "user_id": user_id,
+                "filters_applied": {"role_id": role_id, "user_id": user_id, "from_date": from_date, "to_date": to_date},
+                "assignments": [],
+                "count": 0,
+            }
+
+    # Step 2: Fetch role details from RBPRole
+    role_filters = []
+    if role_id:
+        role_filters.append(f"roleId eq {sanitize_odata_string(role_id)}")
+    if user_role_ids:
+        if role_id:
+            # Intersect: only show the specific role if user has it
+            if role_id not in user_role_ids:
+                return {
+                    "user_id": user_id,
+                    "filters_applied": {
+                        "role_id": role_id, "user_id": user_id,
+                        "from_date": from_date, "to_date": to_date,
+                    },
+                    "assignments": [],
+                    "count": 0,
+                    "message": f"User '{user_id}' does not have role '{role_id}'",
+                }
+        else:
+            id_clauses = " or ".join(f"roleId eq {sanitize_odata_string(rid)}" for rid in sorted(user_role_ids))
+            role_filters.append(f"({id_clauses})")
+
+    role_filters.extend(_build_date_range_filter("lastModifiedDate", from_date, to_date))
 
     params = {
-        "$select": "userId,roleId,roleName,roleDesc,userType,lastModifiedBy,lastModifiedDate,createdBy,createdDate",
+        "$select": "roleId,roleName,roleDesc,userType,lastModifiedBy,lastModifiedDate,createdBy,createdDate",
         "$orderby": "lastModifiedDate desc",
         "$top": str(top),
         "$format": "json",
     }
-    if filters:
-        params["$filter"] = " and ".join(filters)
+    if role_filters:
+        params["$filter"] = " and ".join(role_filters)
 
     result = make_odata_request(
         instance,
-        "/odata/v2/RBPBasicUserPermission",
+        "/odata/v2/RBPRole",
         data_center,
         environment,
         auth_user_id,
         auth_password,
         params,
         request_id,
+        cache_category="permissions",
     )
 
     if "error" in result:
@@ -178,13 +238,13 @@ def get_role_assignment_history(
     for entry in result.get("d", {}).get("results", []):
         assignments.append(
             {
-                "user_id": entry.get("userId"),
+                "user_id": user_id,
                 "role_id": entry.get("roleId"),
                 "role_name": entry.get("roleName"),
                 "role_description": entry.get("roleDesc"),
                 "user_type": entry.get("userType"),
-                "assigned_by": entry.get("createdBy"),
-                "assigned_date": parse_sap_date(entry.get("createdDate", "")),
+                "created_by": entry.get("createdBy"),
+                "created_date": parse_sap_date(entry.get("createdDate", "")),
                 "last_modified_by": entry.get("lastModifiedBy"),
                 "last_modified_date": parse_sap_date(entry.get("lastModifiedDate", "")),
             }

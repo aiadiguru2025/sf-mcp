@@ -6,11 +6,8 @@ from sf_mcp.client import make_odata_request
 from sf_mcp.decorators import sf_tool
 from sf_mcp.dependencies import ApiHost, RequestId, StartTime
 from sf_mcp.server import mcp
+from sf_mcp.tools.utils import display_name as _display_name
 from sf_mcp.validation import sanitize_odata_string
-
-
-def _display_name(entry: dict) -> str:
-    return entry.get("displayName") or f"{entry.get('firstName', '')} {entry.get('lastName', '')}".strip()
 
 
 @mcp.tool()

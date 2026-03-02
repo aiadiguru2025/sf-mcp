@@ -6,13 +6,14 @@ from sf_mcp.client import make_metadata_request, make_odata_request, make_servic
 
 
 class TestMakeOdataRequest:
-    @patch("sf_mcp.client.requests.get")
-    def test_success(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_success(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = '{"d": {"results": []}}'
         mock_resp.json.return_value = {"d": {"results": []}}
-        mock_get.return_value = mock_resp
+        mock_session = mock_get_session.return_value
+        mock_session.get.return_value = mock_resp
 
         result = make_odata_request(
             "test-instance",
@@ -27,13 +28,13 @@ class TestMakeOdataRequest:
 
         assert "error" not in result
         assert result == {"d": {"results": []}}
-        mock_get.assert_called_once()
+        mock_session.get.assert_called_once()
 
-    @patch("sf_mcp.client.requests.get")
-    def test_401_returns_error(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_401_returns_error(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 401
-        mock_get.return_value = mock_resp
+        mock_get_session.return_value.get.return_value = mock_resp
 
         result = make_odata_request(
             "test-instance",
@@ -48,12 +49,12 @@ class TestMakeOdataRequest:
 
         assert result["error"] == "HTTP 401"
 
-    @patch("sf_mcp.client.requests.get")
-    def test_500_returns_error(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_500_returns_error(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 500
         mock_resp.text = "Internal Server Error"
-        mock_get.return_value = mock_resp
+        mock_get_session.return_value.get.return_value = mock_resp
 
         result = make_odata_request(
             "test-instance",
@@ -96,12 +97,12 @@ class TestMakeOdataRequest:
 
         assert "Invalid data_center" in result["error"]
 
-    @patch("sf_mcp.client.requests.get")
-    def test_empty_response(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_empty_response(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = "   "
-        mock_get.return_value = mock_resp
+        mock_get_session.return_value.get.return_value = mock_resp
 
         result = make_odata_request(
             "test-instance",
@@ -116,11 +117,11 @@ class TestMakeOdataRequest:
 
         assert "Empty response" in result["error"]
 
-    @patch("sf_mcp.client.requests.get")
-    def test_request_exception(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_request_exception(self, mock_get_session):
         import requests
 
-        mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+        mock_get_session.return_value.get.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
         result = make_odata_request(
             "test-instance",
@@ -135,13 +136,14 @@ class TestMakeOdataRequest:
 
         assert "Request failed" in result["error"]
 
-    @patch("sf_mcp.client.requests.get")
-    def test_builds_correct_url(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_builds_correct_url(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = '{"d": {}}'
         mock_resp.json.return_value = {"d": {}}
-        mock_get.return_value = mock_resp
+        mock_session = mock_get_session.return_value
+        mock_session.get.return_value = mock_resp
 
         make_odata_request(
             "mycompany",
@@ -154,18 +156,18 @@ class TestMakeOdataRequest:
             "test123",
         )
 
-        call_args = mock_get.call_args
+        call_args = mock_session.get.call_args
         assert call_args.kwargs["auth"] == ("admin@mycompany", "password123")
         assert "api55.sapsf.eu" in call_args.args[0]
 
 
 class TestMakeMetadataRequest:
-    @patch("sf_mcp.client.requests.get")
-    def test_success(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_success(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = "<root><child>test</child></root>"
-        mock_get.return_value = mock_resp
+        mock_get_session.return_value.get.return_value = mock_resp
 
         result = make_metadata_request(
             "test-instance",
@@ -195,12 +197,12 @@ class TestMakeMetadataRequest:
 
 
 class TestMakeServiceDocRequest:
-    @patch("sf_mcp.client.requests.get")
-    def test_success(self, mock_get):
+    @patch("sf_mcp.client.get_session")
+    def test_success(self, mock_get_session):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"d": {"EntitySets": ["User", "EmpJob"]}}
-        mock_get.return_value = mock_resp
+        mock_get_session.return_value.get.return_value = mock_resp
 
         result = make_service_doc_request(
             "test-instance",

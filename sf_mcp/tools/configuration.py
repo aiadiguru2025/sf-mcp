@@ -1,11 +1,15 @@
 """Configuration and metadata tools: get_configuration, compare_configurations, list_entities."""
 
+import time
+import uuid
 from typing import Any
 
 from sf_mcp.client import make_metadata_request, make_service_doc_request
 from sf_mcp.decorators import sf_tool
 from sf_mcp.dependencies import ApiHost, RequestId, StartTime
+from sf_mcp.logging_config import audit_log
 from sf_mcp.server import mcp
+from sf_mcp.validation import validate_identifier
 
 
 def _extract_entity_fields(metadata: dict) -> dict[str, dict]:
@@ -127,7 +131,6 @@ def get_configuration(
 
 
 @mcp.tool()
-@sf_tool("compare_configurations")
 def compare_configurations(
     instance1: str,
     instance2: str,
@@ -138,13 +141,6 @@ def compare_configurations(
     environment2: str,
     auth_user_id: str,
     auth_password: str,
-    # Note: 'instance' is required by sf_tool but this tool uses instance1/instance2.
-    # We pass instance1 as 'instance' for validation, but the tool uses both.
-    instance: str = "",
-    *,
-    request_id: str = RequestId(),
-    start_time: float = StartTime(),
-    api_host: str = ApiHost(),
 ) -> dict[str, Any]:
     """
     Compare entity configuration/metadata between two SuccessFactors instances.
@@ -166,6 +162,33 @@ def compare_configurations(
     Returns:
         dict containing comparison results with match percentage and field differences
     """
+    request_id = str(uuid.uuid4())[:8]
+    start_time_val = time.time()
+
+    audit_log(
+        event_type="tool_invocation",
+        tool_name="compare_configurations",
+        instance=instance1,
+        status="started",
+        details={"instance1": instance1, "instance2": instance2, "entity": entity},
+        request_id=request_id,
+    )
+
+    try:
+        validate_identifier(instance1, "instance1")
+        validate_identifier(instance2, "instance2")
+    except ValueError as e:
+        audit_log(
+            event_type="validation_error",
+            tool_name="compare_configurations",
+            instance=instance1,
+            status="failure",
+            details={"error": str(e)},
+            request_id=request_id,
+            duration_ms=(time.time() - start_time_val) * 1000,
+        )
+        return {"error": str(e)}
+
     # Fetch metadata from both instances
     metadata1 = make_metadata_request(
         instance1,
@@ -215,6 +238,15 @@ def compare_configurations(
     total_unique_fields = len(fields1_names | fields2_names)
     matching_fields = len(in_both) - len(type_differences)
     match_percentage = round((matching_fields / total_unique_fields * 100), 1) if total_unique_fields > 0 else 100
+
+    audit_log(
+        event_type="tool_invocation",
+        tool_name="compare_configurations",
+        instance=instance1,
+        status="success",
+        request_id=request_id,
+        duration_ms=(time.time() - start_time_val) * 1000,
+    )
 
     return {
         "entity": entity,

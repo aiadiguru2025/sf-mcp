@@ -8,8 +8,8 @@ from sf_mcp.rate_limiter import RateLimiter
 
 class TestClientRateLimiting:
     @patch("sf_mcp.client.get_rate_limiter")
-    @patch("sf_mcp.client.requests.get")
-    def test_rate_limit_exceeded_returns_error(self, mock_get, mock_get_rl):
+    @patch("sf_mcp.client.get_session")
+    def test_rate_limit_exceeded_returns_error(self, mock_get_session, mock_get_rl):
         """When rate limiter says no, HTTP call is never made."""
 
         rl = RateLimiter(limit=0, window_seconds=60)
@@ -27,14 +27,14 @@ class TestClientRateLimiting:
         )
 
         assert "Rate limit exceeded" in result["error"]
-        mock_get.assert_not_called()
+        mock_get_session.return_value.get.assert_not_called()
 
 
 class TestClient429Handling:
     @patch("sf_mcp.client.get_rate_limiter")
     @patch("sf_mcp.client.time.sleep")
-    @patch("sf_mcp.client.requests.get")
-    def test_429_retry_then_succeed(self, mock_get, mock_sleep, mock_get_rl):
+    @patch("sf_mcp.client.get_session")
+    def test_429_retry_then_succeed(self, mock_get_session, mock_sleep, mock_get_rl):
         """HTTP 429 is retried and succeeds on second attempt."""
         # Rate limiter allows all requests
         mock_rl = MagicMock()
@@ -49,7 +49,8 @@ class TestClient429Handling:
         resp_200.text = '{"d": {"results": []}}'
         resp_200.json.return_value = {"d": {"results": []}}
 
-        mock_get.side_effect = [resp_429, resp_200]
+        mock_session = mock_get_session.return_value
+        mock_session.get.side_effect = [resp_429, resp_200]
 
         result = make_odata_request(
             "test-instance",
@@ -63,13 +64,13 @@ class TestClient429Handling:
         )
 
         assert "error" not in result
-        assert mock_get.call_count == 2
+        assert mock_session.get.call_count == 2
         mock_sleep.assert_called_once_with(1)
 
     @patch("sf_mcp.client.get_rate_limiter")
     @patch("sf_mcp.client.time.sleep")
-    @patch("sf_mcp.client.requests.get")
-    def test_429_retries_exhausted(self, mock_get, mock_sleep, mock_get_rl):
+    @patch("sf_mcp.client.get_session")
+    def test_429_retries_exhausted(self, mock_get_session, mock_sleep, mock_get_rl):
         """HTTP 429 with all retries exhausted returns error."""
         mock_rl = MagicMock()
         mock_get_rl.return_value = mock_rl
@@ -77,7 +78,7 @@ class TestClient429Handling:
         resp_429 = MagicMock()
         resp_429.status_code = 429
         resp_429.headers = {"Retry-After": "1"}
-        mock_get.return_value = resp_429
+        mock_get_session.return_value.get.return_value = resp_429
 
         result = make_odata_request(
             "test-instance",

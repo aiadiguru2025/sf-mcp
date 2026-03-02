@@ -152,7 +152,17 @@ def _extract_mdf_fields(metadata: dict) -> list[dict]:
 
 
 @mcp.tool()
-@sf_tool("query_mdf_object", max_top=500)
+@sf_tool(
+    "query_mdf_object",
+    max_top=500,
+    validate={
+        "object_name": "entity_path",
+        "filter": "odata_filter",
+        "select": "select",
+        "orderby": "orderby",
+        "effective_date": "date",
+    },
+)
 def query_mdf_object(
     instance: str,
     object_name: str,
@@ -272,7 +282,7 @@ _FOUNDATION_ENTITIES: dict[str, str] = {
 
 
 @mcp.tool()
-@sf_tool("get_foundation_objects", max_top=500)
+@sf_tool("get_foundation_objects", max_top=500, validate={"filter": "odata_filter"})
 def get_foundation_objects(
     instance: str,
     object_type: str,
