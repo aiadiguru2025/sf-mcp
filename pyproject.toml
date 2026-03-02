@@ -1,9 +1,22 @@
 [project]
 name = "sf-mcp"
 version = "0.3.2"
-description = "SAP SuccessFactors MCP server with 43 HR tools"
+description = "SAP SuccessFactors MCP server with 43 HR tools for Claude Desktop and Cloud Run"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
+keywords = ["mcp", "sap", "successfactors", "hr", "odata", "claude", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Office/Business :: Financial :: Human Resources",
+]
 dependencies = [
     "fastmcp>=2.0.0",
     "requests>=2.31.0",
@@ -11,6 +24,11 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "uvicorn>=0.30.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/aiadiguru2025/sf-mcp"
+Issues = "https://github.com/aiadiguru2025/sf-mcp/issues"
+Changelog = "https://github.com/aiadiguru2025/sf-mcp/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
