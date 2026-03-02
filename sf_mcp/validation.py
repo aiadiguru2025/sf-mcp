@@ -1,7 +1,10 @@
 """Input validation functions and patterns for OData parameters."""
 
 import re
+import urllib.parse
 from datetime import datetime
+
+from sf_mcp.config import MAX_FILTER_LENGTH
 
 # Patterns for validating OData input parameters
 SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]+$")
@@ -24,6 +27,11 @@ ODATA_FILTER_BLOCKLIST = {
     "<script",
     "onerror",
     "onload",
+    "onclick",
+    "onmouseover",
+    "onfocus",
+    "eval(",
+    "expression(",
 }
 
 # Map of validator names to functions (used by the sf_tool decorator)
@@ -105,13 +113,35 @@ def validate_expand(value: str, field_name: str = "expand") -> str:
 
 @_register("odata_filter")
 def validate_odata_filter(value: str, field_name: str = "filter") -> str:
-    """Validate and sanitize OData $filter parameter."""
-    value_lower = value.lower()
-    for blocked in ODATA_FILTER_BLOCKLIST:
-        if blocked in value_lower:
-            raise ValueError(f"Invalid filter: contains blocked keyword '{blocked}'")
-    if len(value) > 2000:
-        raise ValueError("Invalid filter: expression too long (max 2000 characters)")
+    """Validate and sanitize OData $filter parameter.
+
+    Checks both the raw value and its URL-decoded form to prevent
+    encoded bypass attempts (e.g., %24batch for $batch).
+    Also rejects null bytes and other control characters.
+    """
+    if len(value) > MAX_FILTER_LENGTH:
+        raise ValueError(f"Invalid filter: expression too long (max {MAX_FILTER_LENGTH} characters)")
+
+    # Reject null bytes and control characters (except space, tab)
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", value):
+        raise ValueError("Invalid filter: contains control characters")
+
+    # Check both raw and URL-decoded forms to prevent encoded bypasses
+    candidates = {value.lower()}
+    try:
+        decoded = urllib.parse.unquote(value)
+        candidates.add(decoded.lower())
+        # Double-decode to catch double-encoding attacks
+        double_decoded = urllib.parse.unquote(decoded)
+        candidates.add(double_decoded.lower())
+    except (ValueError, UnicodeDecodeError):
+        pass
+
+    for candidate in candidates:
+        for blocked in ODATA_FILTER_BLOCKLIST:
+            if blocked in candidate:
+                raise ValueError(f"Invalid filter: contains blocked keyword '{blocked}'")
+
     return value
 
 

@@ -99,7 +99,7 @@ def parse_hire_date(hire_date_raw: str) -> date | None:
     try:
         if "/Date(" in hire_date_raw:
             ts = int(hire_date_raw.split("(")[1].split(")")[0].split("+")[0].split("-")[0])
-            return date.fromtimestamp(ts / 1000)
+            return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).date()
         else:
             return datetime.strptime(hire_date_raw[:10], "%Y-%m-%d").date()
     except (ValueError, TypeError, IndexError):

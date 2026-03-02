@@ -1,6 +1,6 @@
 """SF-MCP: SAP SuccessFactors Model Context Protocol Server.
 
-Provides 32 tools for querying and managing SuccessFactors via OData APIs.
+Provides 43 tools for querying and managing SuccessFactors via OData APIs.
 Supports both stdio mode (Claude Desktop) and HTTP mode (Cloud Run).
 """
 

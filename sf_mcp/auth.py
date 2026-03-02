@@ -1,5 +1,6 @@
 """Authentication, credential handling, and API key middleware."""
 
+import hmac
 import os
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -31,15 +32,22 @@ def _get_mcp_api_key() -> str | None:
 
     try:
         from google.cloud import secretmanager
+    except ImportError:
+        # google-cloud-secret-manager not installed; skip GCP Secret Manager
+        return None
 
-        project_id = os.environ.get("GCP_PROJECT_ID")
-        if project_id:
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    if project_id:
+        try:
             client = secretmanager.SecretManagerServiceClient()
             name = f"projects/{project_id}/secrets/mcp-api-key/versions/latest"
             response = client.access_secret_version(request={"name": name})
             return response.payload.data.decode("UTF-8")
-    except (ImportError, Exception):
-        pass
+        except Exception as e:
+            logger.error(
+                "Failed to fetch API key from GCP Secret Manager: %s", e,
+                exc_info=True,
+            )
 
     return None
 
@@ -71,7 +79,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 if auth_header.startswith("Bearer "):
                     client_key = auth_header[7:]
 
-            if client_key != MCP_API_KEY:
+            if not client_key or not hmac.compare_digest(client_key, MCP_API_KEY):
                 audit_log(
                     event_type="authentication",
                     status="failure",

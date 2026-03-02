@@ -1,7 +1,7 @@
 [project]
 name = "sf-mcp"
-version = "0.3.0"
-description = "SAP SuccessFactors MCP server with 32 HR tools"
+version = "0.3.1"
+description = "SAP SuccessFactors MCP server with 43 HR tools"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

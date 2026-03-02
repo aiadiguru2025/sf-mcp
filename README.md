@@ -58,10 +58,13 @@ This MCP server enables Claude Desktop (or any MCP-compatible client) to interac
 
 ### Security Features
 
-- **Input Validation**: Regex-based validation prevents OData injection attacks
+- **Input Validation**: Regex-based allowlist validation prevents OData injection attacks
+- **Filter Hardening**: OData filter blocklist checks raw, URL-decoded, and double-decoded input to prevent encoded bypass attempts; rejects control characters and null bytes
+- **Timing-Safe Auth**: API key comparison uses `hmac.compare_digest` to prevent timing-based side-channel attacks
 - **XXE Protection**: Uses `defusedxml` library for safe XML parsing
-- **Audit Logging**: JSON-structured logs compatible with Cloud Logging
+- **Audit Logging**: JSON-structured logs compatible with Cloud Logging; sensitive fields (passwords, credentials) are automatically masked
 - **Per-Request Authentication**: Credentials required on every tool call (no stored defaults)
+- **UTC-Consistent Dates**: All SAP timestamp parsing uses UTC to prevent timezone-related data inconsistencies
 
 ### Rate Limiting
 
