@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">SF-MCP</h1>
+  <h1 align="center">SuccessFactors-MCP</h1>
   <p align="center">
     <strong>SAP SuccessFactors Model Context Protocol Server</strong>
   </p>
