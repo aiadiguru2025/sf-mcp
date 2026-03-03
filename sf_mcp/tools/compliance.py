@@ -251,15 +251,16 @@ def get_employees_missing_data(
                 }
             )
 
+    total_with_issues = len(employees_missing)
     employees_missing = employees_missing[:top]
     if total_employees > 0:
-        compliance_rate = round((total_employees - len(employees_missing)) / total_employees * 100, 1)
+        compliance_rate = round((total_employees - total_with_issues) / total_employees * 100, 1)
     else:
         compliance_rate = 100.0
 
     return {
         "employees_with_issues": employees_missing,
-        "count": len(employees_missing),
+        "count": total_with_issues,
         "total_employees_checked": total_employees,
         "compliance_rate_percent": compliance_rate,
         "fields_checked": requested_fields,
