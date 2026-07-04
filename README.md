@@ -6,7 +6,7 @@
   <p align="center">
     <a href="#installation">Installation</a> &middot;
     <a href="#quick-start">Quick Start</a> &middot;
-    <a href="#tools">43 Tools</a> &middot;
+    <a href="#tools">62 Tools</a> &middot;
     <a href="#deployment">Deployment</a> &middot;
     <a href="#api-reference">API Reference</a>
   </p>
@@ -36,7 +36,7 @@ Claude: [calls get_anniversary_employees] Found 3 upcoming anniversaries...
 
 | Challenge | SF-MCP Solution |
 |-----------|-----------------|
-| SAP SuccessFactors APIs are complex and verbose | **43 purpose-built tools** with clean interfaces |
+| SAP SuccessFactors APIs are complex and verbose | **62 purpose-built tools** with clean interfaces |
 | Building OData queries requires deep SF knowledge | **Natural language** — ask Claude in plain English |
 | Security concerns with API access | **Per-request auth**, input validation, audit logging |
 | Managing multiple SF instances | **21 data centers** supported, cross-instance comparison |
@@ -44,7 +44,7 @@ Claude: [calls get_anniversary_employees] Found 3 upcoming anniversaries...
 
 ## Tools
 
-43 tools organized across 13 categories:
+62 tools organized across 16 categories:
 
 <details>
 <summary><strong>Configuration & Discovery</strong> (3 tools)</summary>
@@ -73,12 +73,16 @@ Claude: [calls get_anniversary_employees] Found 3 upcoming anniversaries...
 </details>
 
 <details>
-<summary><strong>RBP Audit</strong> (2 tools)</summary>
+<summary><strong>Security & Audit</strong> (6 tools)</summary>
 
 | Tool | Description |
 |------|-------------|
 | `get_role_history` | View modification history for roles |
 | `get_role_assignment_history` | View history of role assignments |
+| `get_login_audit_log` | Login events — who logged in, when, from where |
+| `get_admin_audit_log` | Admin-level config/data change history |
+| `get_sod_violations` | Detect segregation-of-duty conflicts in RBP assignments |
+| `get_dormant_users` | Active accounts with no recent login activity |
 
 </details>
 
@@ -138,12 +142,27 @@ Claude: [calls get_anniversary_employees] Found 3 upcoming anniversaries...
 </details>
 
 <details>
-<summary><strong>Performance & Compensation</strong> (2 tools)</summary>
+<summary><strong>Performance & Compensation</strong> (5 tools)</summary>
 
 | Tool | Description |
 |------|-------------|
 | `get_performance_review_status` | Review form completion across the org |
 | `get_compensation_details` | Pay breakdown with recurring/non-recurring components |
+| `get_compensation_history` | Full compensation change history (not just latest) |
+| `get_compensation_review_status` | Comp planning worksheet completion by manager/department |
+| `get_salary_range_analysis` | Compa-ratio: pay vs. grade midpoint |
+
+</details>
+
+<details>
+<summary><strong>Performance & Talent</strong> (4 tools)</summary>
+
+| Tool | Description |
+|------|-------------|
+| `get_goal_summary` | Employee goals — category, weight, completion |
+| `get_development_plans` | Development goals and learning activities |
+| `get_talent_flags` | Potential, flight risk, impact of loss, key position |
+| `get_succession_nominees` | Talent pool nominees for key positions |
 
 </details>
 
@@ -190,6 +209,30 @@ Claude: [calls get_anniversary_employees] Found 3 upcoming anniversaries...
 | `get_api_quota_status` | Rate limit usage per instance |
 | `get_cache_status` | Cache hit rates and entry counts |
 | `clear_cache` | Clear cached responses |
+
+</details>
+
+<details>
+<summary><strong>Employee Central</strong> (5 tools)</summary>
+
+| Tool | Description |
+|------|-------------|
+| `get_global_assignments` | International assignments — home/host details |
+| `get_employee_documents` | Documents attached to an employee's record |
+| `get_pay_component_groups` | Recurring pay elements (allowances, bonuses) |
+| `get_work_permit_expiry` | Work permits/visas expiring soon |
+| `get_probation_end_dates` | Employees approaching end of probation |
+
+</details>
+
+<details>
+<summary><strong>Data Management</strong> (3 tools)</summary>
+
+| Tool | Description |
+|------|-------------|
+| `bulk_export_employees` | Paginated full export of active employees |
+| `get_picklist_usage` | Which picklists are used on which entity fields |
+| `get_country_specific_fields` | Field population rates for a given country |
 
 </details>
 
@@ -260,7 +303,7 @@ Add the sf-mcp server:
 
 ### Step 3 — Restart Claude Desktop
 
-The MCP tools icon (hammer) will appear in the input area with all 43 tools available.
+The MCP tools icon (hammer) will appear in the input area with all 62 tools available.
 
 > **Note:** Credentials (`auth_user_id` and `auth_password`) are provided on each tool call — nothing is stored in the config.
 
@@ -386,7 +429,7 @@ sf-mcp/
 │   ├── dependencies.py         # FastMCP DI for schema exclusion
 │   ├── logging_config.py       # Cloud Logging JSON formatter, audit_log()
 │   ├── xml_utils.py            # Safe XML parsing (defusedxml), SAP date parsing
-│   └── tools/                  # 43 tools across 13 modules
+│   └── tools/                  # 62 tools across 16 modules
 │       ├── configuration.py    # get_configuration, compare_configurations, list_entities
 │       ├── permissions.py      # 7 RBP security tools
 │       ├── audit.py            # Role history, role assignment history
@@ -556,7 +599,7 @@ Compare entity config between two instances (e.g., dev vs prod).
 </details>
 
 <details>
-<summary><strong>RBP Audit Tools</strong></summary>
+<summary><strong>Security & Audit Tools</strong></summary>
 
 #### `get_role_history`
 
@@ -579,6 +622,44 @@ Compare entity config between two instances (e.g., dev vs prod).
 | `top` | integer | No | Max records (default: 100, max: 500) |
 
 > At least one of `role_id` or `user_id` is required.
+
+#### `get_login_audit_log`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | No | Filter to a single user's login history |
+| `from_date` | string | No | Start date (YYYY-MM-DD) |
+| `to_date` | string | No | End date (YYYY-MM-DD) |
+| `top` | integer | No | Max records (default: 100, max: 500) |
+
+> Requires the instance's Audit Trail / Login Tracking feature to be provisioned.
+
+#### `get_admin_audit_log`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entity_name` | string | No | Filter by entity/object name (e.g., `RBPRole`, `User`) |
+| `changed_by` | string | No | Filter by the admin who made the change |
+| `from_date` | string | No | Start date (YYYY-MM-DD) |
+| `to_date` | string | No | End date (YYYY-MM-DD) |
+| `top` | integer | No | Max records (default: 100, max: 500) |
+
+> Requires the instance's Audit Trail feature to be provisioned.
+
+#### `get_sod_violations`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_ids` | string | Yes | Employee user ID(s), comma-separated (max 20) |
+| `permission_pairs` | string | No | Custom conflict pairs: `"PermA\|PermB,PermC\|PermD"`. Defaults to a built-in list of common RBP conflicts |
+
+#### `get_dormant_users`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `dormant_days` | integer | No | Flag users with no login in this many days (default: 90) |
+| `department` | string | No | Filter by department |
+| `top` | integer | No | Max records (default: 100, max: 500) |
 
 </details>
 
@@ -763,6 +844,68 @@ Compare entity config between two instances (e.g., dev vs prod).
 | `user_ids` | string | Yes | Comma-separated user IDs (max 20) |
 | `effective_date` | string | No | Compensation as of date (YYYY-MM-DD) |
 
+#### `get_compensation_history`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | Yes | The employee's user ID |
+| `top` | integer | No | Max history records (default: 50, max: 200) |
+
+#### `get_compensation_review_status`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `form_template_id` | string | Yes | The compensation worksheet's form template ID |
+| `department` | string | No | Filter by department |
+| `manager_id` | string | No | Filter by manager |
+| `status` | string | No | `not_started`, `in_progress`, `completed`, or `""` for all |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+#### `get_salary_range_analysis`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_ids` | string | Yes | Comma-separated user IDs (max 20) |
+
+> Returns compa-ratio (current salary ÷ grade midpoint × 100) per employee.
+
+</details>
+
+<details>
+<summary><strong>Performance & Talent Tools</strong></summary>
+
+#### `get_goal_summary`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | Yes | The employee's user ID |
+| `status` | string | No | `not_started`, `in_progress`, `completed`, or `""` for all |
+| `top` | integer | No | Max results (default: 100, max: 200) |
+
+#### `get_development_plans`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | Yes | The employee's user ID |
+| `status` | string | No | `not_started`, `in_progress`, `completed`, or `""` for all |
+| `top` | integer | No | Max results (default: 100, max: 200) |
+
+#### `get_talent_flags`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_ids` | string | Yes | Comma-separated user IDs (max 20) |
+
+> Field availability depends on the instance's Succession Data Model configuration.
+
+#### `get_succession_nominees`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pool_id` | string | No | Filter to nominees for a specific talent pool |
+| `user_id` | string | No | Filter to pools an employee is nominated to |
+| `top` | integer | No | Max results (default: 100, max: 200) |
+
 </details>
 
 <details>
@@ -883,6 +1026,79 @@ Returns cache hit rates, entry counts by category, and memory usage.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `target_instance` | string | No | Clear specific instance. Empty = clear all. |
+
+</details>
+
+<details>
+<summary><strong>Employee Central Tools</strong></summary>
+
+#### `get_global_assignments`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | No | Filter to a single employee's assignment history |
+| `active_only` | boolean | No | Only currently active assignments (default: true) |
+| `top` | integer | No | Max results (default: 100, max: 200) |
+
+#### `get_employee_documents`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | Yes | The employee's user ID |
+| `document_type` | string | No | Filter by document type |
+| `top` | integer | No | Max results (default: 50, max: 100) |
+
+#### `get_pay_component_groups`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | Yes | The employee's user ID |
+| `effective_date` | string | No | Components as of date (YYYY-MM-DD) |
+
+#### `get_work_permit_expiry`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `within_days` | integer | No | Flag permits/visas expiring within N days (default: 90) |
+| `country` | string | No | Filter by ISO country code |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+#### `get_probation_end_dates`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `within_days` | integer | No | Flag probation periods ending within N days (default: 30) |
+| `department` | string | No | Filter by department |
+| `top` | integer | No | Max results (default: 100, max: 500) |
+
+</details>
+
+<details>
+<summary><strong>Data Management Tools</strong></summary>
+
+#### `bulk_export_employees`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `select` | string | No | Comma-separated fields. Defaults to a standard field set |
+| `department` | string | No | Filter by department |
+| `status` | string | No | `active`, `inactive`, or `all` (default: `active`) |
+| `top` | integer | No | Records per page (default: 500, max: 1000) |
+| `max_pages` | integer | No | Max pages to fetch (default: 10, max: 50) |
+
+#### `get_picklist_usage`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entities` | string | No | Comma-separated entity names to scan. Defaults to a common set |
+
+#### `get_country_specific_fields`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entity` | string | Yes | OData entity to analyze (e.g., `PerPersonal`, `PerNationalId`) |
+| `country` | string | Yes | ISO country code to filter the sample |
+| `sample_size` | integer | No | Records to sample for population rates (default: 50, max: 200) |
 
 </details>
 

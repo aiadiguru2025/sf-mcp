@@ -5,6 +5,7 @@ from sf_mcp.tools import (  # noqa: F401
     audit,
     compliance,
     configuration,
+    data_management,
     employee,
     mdf,
     monitoring,
@@ -12,6 +13,7 @@ from sf_mcp.tools import (  # noqa: F401
     position,
     query,
     recruiting,
+    talent,
     time_off,
     workflow,
 )

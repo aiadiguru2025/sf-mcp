@@ -1,5 +1,6 @@
 """Employee tools: profile, search, history, team roster."""
 
+from datetime import date, timedelta
 from typing import Any
 
 from sf_mcp.client import make_odata_request
@@ -492,3 +493,415 @@ def get_team_roster(
         response_data["total_team_size"] = len(direct_reports)
 
     return response_data
+
+
+@mcp.tool()
+@sf_tool("get_global_assignments", max_top=200)
+def get_global_assignments(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    user_id: str = "",
+    active_only: bool = True,
+    top: int = 100,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    List employees on international/global assignments with home and host details.
+
+    Shows the home and host company/country for each assignment, useful for
+    tracking expatriates and cross-border compliance requirements.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        user_id: Optional employee user ID to filter to a single assignment history
+        active_only: If True, only show currently active assignments (default: True)
+        top: Maximum results (default: 100, max: 200)
+    """
+    filters = []
+    if user_id:
+        filters.append(f"userId eq '{sanitize_odata_string(user_id)}'")
+    if active_only:
+        today = date.today().isoformat()
+        filters.append(f"startDate le datetime'{today}T23:59:59'")
+        filters.append(f"(endDate eq null or endDate ge datetime'{today}T00:00:00')")
+
+    params = {
+        "$select": "userId,startDate,endDate,assignmentType,homeCompany,hostCompany,homeCountry,hostCountry",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "startDate desc",
+    }
+    if filters:
+        params["$filter"] = " and ".join(filters)
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/EmpGlobalAssignment",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    assignments = [
+        {
+            "user_id": e.get("userId"),
+            "start_date": e.get("startDate"),
+            "end_date": e.get("endDate"),
+            "assignment_type": e.get("assignmentType"),
+            "home_company": e.get("homeCompany"),
+            "host_company": e.get("hostCompany"),
+            "home_country": e.get("homeCountry"),
+            "host_country": e.get("hostCountry"),
+        }
+        for e in result.get("d", {}).get("results", [])
+    ]
+
+    return {
+        "assignments": assignments,
+        "count": len(assignments),
+        "filters_applied": {"user_id": user_id or None, "active_only": active_only},
+    }
+
+
+@mcp.tool()
+@sf_tool("get_employee_documents")
+def get_employee_documents(
+    instance: str,
+    user_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    document_type: str = "",
+    top: int = 50,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    List documents attached to an employee's record (contracts, IDs, certificates).
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_id: The employee's user ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        document_type: Optional filter by document type (applied client-side)
+        top: Maximum results (default: 50, max: 100)
+    """
+    top = max(1, min(top, 100))
+    safe_user_id = sanitize_odata_string(user_id)
+
+    params = {
+        "$filter": f"personIdExternal eq '{safe_user_id}'",
+        "$select": "personIdExternal,documentType,fileName,uploadedDate,expirationDate",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "uploadedDate desc",
+    }
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/PerDocuments",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    documents = []
+    for e in result.get("d", {}).get("results", []):
+        doc_type = e.get("documentType")
+        if document_type and doc_type and document_type.lower() not in str(doc_type).lower():
+            continue
+        documents.append(
+            {
+                "document_type": doc_type,
+                "file_name": e.get("fileName"),
+                "uploaded_date": e.get("uploadedDate"),
+                "expiration_date": e.get("expirationDate"),
+            }
+        )
+
+    return {
+        "user_id": user_id,
+        "documents": documents,
+        "count": len(documents),
+        "filters_applied": {"document_type": document_type or None},
+    }
+
+
+@mcp.tool()
+@sf_tool("get_pay_component_groups")
+def get_pay_component_groups(
+    instance: str,
+    user_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    effective_date: str = "",
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    Get an employee's recurring pay components (allowances, bonuses, etc).
+
+    Unlike get_compensation_details (which returns the full compensation record),
+    this queries recurring pay elements directly for a lighter-weight view.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_id: The employee's user ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        effective_date: Show components as of this date (YYYY-MM-DD). Defaults to latest.
+    """
+    safe_user_id = sanitize_odata_string(user_id)
+    filter_expr = f"userId eq '{safe_user_id}'"
+    if effective_date:
+        filter_expr += f" and startDate le datetime'{sanitize_odata_string(effective_date)}T23:59:59'"
+
+    params = {
+        "$filter": filter_expr,
+        "$select": "userId,payComponent,paycompvalue,currencyCode,frequency,startDate,endDate",
+        "$format": "json",
+        "$top": "100",
+        "$orderby": "startDate desc",
+    }
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/EmpPayCompRecurring",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    components = [
+        {
+            "pay_component": e.get("payComponent"),
+            "amount": e.get("paycompvalue"),
+            "currency": e.get("currencyCode"),
+            "frequency": e.get("frequency"),
+            "start_date": e.get("startDate"),
+            "end_date": e.get("endDate"),
+        }
+        for e in result.get("d", {}).get("results", [])
+    ]
+
+    by_component: dict[str, int] = {}
+    for c in components:
+        key = c.get("pay_component") or "Unknown"
+        by_component[key] = by_component.get(key, 0) + 1
+
+    return {
+        "user_id": user_id,
+        "pay_components": components,
+        "count": len(components),
+        "by_component": by_component,
+    }
+
+
+@mcp.tool()
+@sf_tool("get_work_permit_expiry", max_top=500)
+def get_work_permit_expiry(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    within_days: int = 90,
+    country: str = "",
+    top: int = 100,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    Find employees with work permits or visas expiring soon (compliance risk).
+
+    Scans national ID card records for entries whose type looks like a work
+    permit or visa and whose expiration date falls within the given window.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        within_days: Flag permits/visas expiring within this many days (default: 90)
+        country: Optional country code to filter (e.g., 'US')
+        top: Maximum results (default: 100, max: 500)
+    """
+    today = date.today()
+    cutoff = today + timedelta(days=within_days)
+
+    filters = [
+        f"expirationDate ge datetime'{today.isoformat()}T00:00:00'",
+        f"expirationDate le datetime'{cutoff.isoformat()}T23:59:59'",
+    ]
+    if country:
+        filters.append(f"country eq '{sanitize_odata_string(country)}'")
+
+    params = {
+        "$filter": " and ".join(filters),
+        "$select": "personIdExternal,country,nationalIdCardType,expirationDate",
+        "$format": "json",
+        "$top": str(min(top * 3, 1000)),
+        "$orderby": "expirationDate asc",
+    }
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/PerNationalId",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    keywords = ("work permit", "visa", "permit")
+    expiring = []
+    for e in result.get("d", {}).get("results", []):
+        id_type = str(e.get("nationalIdCardType") or "").lower()
+        if not any(k in id_type for k in keywords):
+            continue
+        expiring.append(
+            {
+                "user_id": e.get("personIdExternal"),
+                "country": e.get("country"),
+                "id_type": e.get("nationalIdCardType"),
+                "expiration_date": e.get("expirationDate"),
+            }
+        )
+
+    expiring = expiring[:top]
+
+    return {
+        "expiring_permits": expiring,
+        "count": len(expiring),
+        "within_days": within_days,
+        "filters_applied": {"country": country or None},
+    }
+
+
+@mcp.tool()
+@sf_tool("get_probation_end_dates", max_top=500)
+def get_probation_end_dates(
+    instance: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    within_days: int = 30,
+    department: str = "",
+    top: int = 100,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    Find employees approaching the end of their probation period.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        within_days: Flag probation periods ending within this many days (default: 30)
+        department: Filter by department
+        top: Maximum results (default: 100, max: 500)
+    """
+    today = date.today()
+    cutoff = today + timedelta(days=within_days)
+
+    filters = [
+        "probationEndDate ne null",
+        f"probationEndDate ge datetime'{today.isoformat()}T00:00:00'",
+        f"probationEndDate le datetime'{cutoff.isoformat()}T23:59:59'",
+    ]
+    if department:
+        filters.append(f"department eq '{sanitize_odata_string(department)}'")
+
+    params = {
+        "$filter": " and ".join(filters),
+        "$select": "userId,probationEndDate,startDate,jobTitle,department",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "probationEndDate asc",
+    }
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/EmpJob",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    employees = [
+        {
+            "user_id": e.get("userId"),
+            "job_title": e.get("jobTitle"),
+            "department": e.get("department"),
+            "hire_date": e.get("startDate"),
+            "probation_end_date": e.get("probationEndDate"),
+        }
+        for e in result.get("d", {}).get("results", [])
+    ]
+
+    return {
+        "employees": employees,
+        "count": len(employees),
+        "within_days": within_days,
+        "filters_applied": {"department": department or None},
+    }

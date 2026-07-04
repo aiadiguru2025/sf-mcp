@@ -591,3 +591,368 @@ def get_compensation_details(
         all_compensation.append(comp_data)
 
     return {"employees": all_compensation, "count": len(all_compensation)}
+
+
+@mcp.tool()
+@sf_tool("get_compensation_history", max_top=200)
+def get_compensation_history(
+    instance: str,
+    user_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    top: int = 50,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    Get an employee's full compensation change history, not just the latest record.
+
+    Shows every recorded compensation event with its effective date, pay grade,
+    and pay components. Use get_compensation_details for just the latest record.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_id: The employee's user ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        top: Maximum history records to return (default: 50, max: 200)
+    """
+    safe_user_id = sanitize_odata_string(user_id)
+
+    params = {
+        "$filter": f"userId eq '{safe_user_id}'",
+        "$select": "userId,startDate,endDate,payGroup,payGrade,compensatedHours,eventReason",
+        "$expand": "empPayCompRecurringNav,empPayCompNonRecurringNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "startDate desc",
+    }
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/EmpCompensation",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    history = []
+    for entry in result.get("d", {}).get("results", []):
+        record = {
+            "effective_date": entry.get("startDate"),
+            "end_date": entry.get("endDate"),
+            "pay_group": entry.get("payGroup"),
+            "pay_grade": entry.get("payGrade"),
+            "compensated_hours": entry.get("compensatedHours"),
+            "event_reason": entry.get("eventReason"),
+        }
+
+        recurring_nav = entry.get("empPayCompRecurringNav", {})
+        if isinstance(recurring_nav, dict) and "results" in recurring_nav:
+            record["recurring_components"] = [
+                {
+                    "pay_component": r.get("payComponent"),
+                    "amount": r.get("paycompvalue"),
+                    "currency": r.get("currencyCode"),
+                    "frequency": r.get("frequency"),
+                }
+                for r in recurring_nav["results"]
+            ]
+
+        non_recurring_nav = entry.get("empPayCompNonRecurringNav", {})
+        if isinstance(non_recurring_nav, dict) and "results" in non_recurring_nav:
+            record["non_recurring_components"] = [
+                {"pay_component": r.get("payComponent"), "amount": r.get("value"), "currency": r.get("currencyCode")}
+                for r in non_recurring_nav["results"]
+            ]
+
+        history.append(record)
+
+    return {"user_id": user_id, "compensation_history": history, "record_count": len(history)}
+
+
+@mcp.tool()
+@sf_tool("get_compensation_review_status", max_top=500)
+def get_compensation_review_status(
+    instance: str,
+    form_template_id: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    department: str = "",
+    manager_id: str = "",
+    status: str = "",
+    top: int = 100,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    Track compensation planning worksheet completion by manager or department.
+
+    Compensation planning cycles run on the same forms engine as performance
+    reviews, distinguished by their form template. Use get_configuration or
+    your instance's Comp admin settings to find the compensation template ID.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        form_template_id: The compensation worksheet's form template ID
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+        department: Filter by department (applied client-side)
+        manager_id: Filter by manager's user ID (applied client-side)
+        status: Filter by worksheet status: 'not_started', 'in_progress', 'completed', or '' for all
+        top: Maximum results (default: 100, max: 500)
+    """
+    filters = [f"formTemplateId eq '{sanitize_odata_string(form_template_id)}'"]
+
+    status_map = {"not_started": "1", "in_progress": "2", "completed": "3"}
+    if status and status in status_map:
+        filters.append(f"formDataStatus eq {status_map[status]}")
+
+    params = {
+        "$select": (
+            "formDataId,formTemplateId,formTemplateName,formSubjectId,formDataStatus,formLastModifiedDate,formDueDate"
+        ),
+        "$expand": "formSubjectIdNav",
+        "$format": "json",
+        "$top": str(top),
+        "$orderby": "formLastModifiedDate desc",
+        "$filter": " and ".join(filters),
+    }
+
+    result = make_odata_request(
+        instance,
+        "/odata/v2/FormHeader",
+        data_center,
+        environment,
+        auth_user_id,
+        auth_password,
+        params,
+        request_id,
+    )
+
+    if "error" in result:
+        return result
+
+    status_labels = {"1": "Not Started", "2": "In Progress", "3": "Completed", "4": "Sent Back"}
+
+    worksheets = []
+    status_counts = {}
+    for entry in result.get("d", {}).get("results", []):
+        subject_nav = entry.get("formSubjectIdNav", {}) or {}
+
+        emp_department = subject_nav.get("department", "")
+        emp_manager = subject_nav.get("manager", "")
+
+        if department and emp_department and department.lower() not in emp_department.lower():
+            continue
+        if manager_id and emp_manager and manager_id != emp_manager:
+            continue
+
+        form_status = str(entry.get("formDataStatus", ""))
+        status_label = status_labels.get(form_status, form_status)
+        status_counts[status_label] = status_counts.get(status_label, 0) + 1
+
+        worksheets.append(
+            {
+                "form_id": entry.get("formDataId"),
+                "template_name": entry.get("formTemplateName"),
+                "subject_user_id": entry.get("formSubjectId"),
+                "subject_name": _display_name(subject_nav) if subject_nav else entry.get("formSubjectId"),
+                "department": emp_department,
+                "manager_id": emp_manager,
+                "status": status_label,
+                "due_date": entry.get("formDueDate"),
+                "last_modified": entry.get("formLastModifiedDate"),
+            }
+        )
+
+    total = len(worksheets)
+    completed = status_counts.get("Completed", 0)
+    completion_rate = round(completed / total * 100, 1) if total else 0.0
+
+    return {
+        "worksheets": worksheets,
+        "count": total,
+        "by_status": status_counts,
+        "completion_rate_percent": completion_rate,
+        "filters_applied": {
+            "form_template_id": form_template_id,
+            "department": department or None,
+            "manager_id": manager_id or None,
+            "status": status or "all",
+        },
+    }
+
+
+@mcp.tool()
+@sf_tool("get_salary_range_analysis")
+def get_salary_range_analysis(
+    instance: str,
+    user_ids: str,
+    data_center: str,
+    environment: str,
+    auth_user_id: str,
+    auth_password: str,
+    *,
+    request_id: str = RequestId(),
+    start_time: float = StartTime(),
+    api_host: str = ApiHost(),
+) -> dict[str, Any]:
+    """
+    Compare employee pay against their pay grade's salary range (compa-ratio).
+
+    Compa-ratio = current base salary / grade midpoint * 100. A value near 100
+    means the employee is paid at the middle of their grade's range; well below
+    100 may indicate a pay-equity or retention risk.
+
+    Args:
+        instance: The SuccessFactors instance/company ID
+        user_ids: Employee user ID(s) - single ID or comma-separated (max 20)
+        data_center: SAP data center code (e.g., 'DC55', 'DC10', 'DC4')
+        environment: Environment type ('preview', 'production', 'sales_demo')
+        auth_user_id: SuccessFactors user ID for authentication (required)
+        auth_password: SuccessFactors password for authentication (required)
+    """
+    id_list = [uid.strip() for uid in user_ids.split(",")][:20]
+
+    analysis = []
+    for uid in id_list:
+        safe_uid = sanitize_odata_string(uid)
+        comp_params = {
+            "$filter": f"userId eq '{safe_uid}'",
+            "$select": "userId,startDate,payGroup,payGrade",
+            "$expand": "empPayCompRecurringNav",
+            "$format": "json",
+            "$top": "1",
+            "$orderby": "startDate desc",
+        }
+        comp_result = make_odata_request(
+            instance,
+            "/odata/v2/EmpCompensation",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            comp_params,
+            request_id,
+        )
+
+        if "error" in comp_result:
+            analysis.append({"user_id": uid, "error": comp_result.get("error")})
+            continue
+
+        comp_records = comp_result.get("d", {}).get("results", [])
+        if not comp_records:
+            analysis.append({"user_id": uid, "message": "No compensation record found"})
+            continue
+
+        comp = comp_records[0]
+        pay_grade = comp.get("payGrade")
+
+        base_salary = None
+        currency = None
+        recurring_nav = comp.get("empPayCompRecurringNav", {})
+        if isinstance(recurring_nav, dict) and "results" in recurring_nav:
+            for component in recurring_nav["results"]:
+                if component.get("payComponent") in ("BASE", "BASEPAY", "SALARY"):
+                    base_salary = component.get("paycompvalue")
+                    currency = component.get("currencyCode")
+                    break
+            if base_salary is None and recurring_nav["results"]:
+                base_salary = recurring_nav["results"][0].get("paycompvalue")
+                currency = recurring_nav["results"][0].get("currencyCode")
+
+        if not pay_grade or base_salary is None:
+            analysis.append(
+                {
+                    "user_id": uid,
+                    "pay_grade": pay_grade,
+                    "base_salary": base_salary,
+                    "message": "Missing pay grade or base salary; cannot compute compa-ratio",
+                }
+            )
+            continue
+
+        range_params = {
+            "$filter": f"payGrade eq '{sanitize_odata_string(pay_grade)}'",
+            "$select": "payGrade,payGroup,currency,startRange,midPoint,endRange",
+            "$format": "json",
+            "$top": "1",
+        }
+        range_result = make_odata_request(
+            instance,
+            "/odata/v2/PayRange",
+            data_center,
+            environment,
+            auth_user_id,
+            auth_password,
+            range_params,
+            request_id,
+        )
+
+        if "error" in range_result:
+            analysis.append(
+                {
+                    "user_id": uid,
+                    "pay_grade": pay_grade,
+                    "base_salary": base_salary,
+                    "currency": currency,
+                    "error": range_result.get("error"),
+                }
+            )
+            continue
+
+        ranges = range_result.get("d", {}).get("results", [])
+        if not ranges:
+            analysis.append(
+                {
+                    "user_id": uid,
+                    "pay_grade": pay_grade,
+                    "base_salary": base_salary,
+                    "currency": currency,
+                    "message": f"No pay range found for grade '{pay_grade}'",
+                }
+            )
+            continue
+
+        pay_range = ranges[0]
+        midpoint = pay_range.get("midPoint")
+        compa_ratio = None
+        if midpoint:
+            try:
+                compa_ratio = round(float(base_salary) / float(midpoint) * 100, 1)
+            except (TypeError, ValueError, ZeroDivisionError):
+                compa_ratio = None
+
+        analysis.append(
+            {
+                "user_id": uid,
+                "pay_grade": pay_grade,
+                "base_salary": base_salary,
+                "currency": currency,
+                "range_minimum": pay_range.get("startRange"),
+                "range_midpoint": midpoint,
+                "range_maximum": pay_range.get("endRange"),
+                "compa_ratio_percent": compa_ratio,
+            }
+        )
+
+    return {"employees": analysis, "count": len(analysis)}
