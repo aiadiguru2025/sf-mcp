@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/aiadiguru2025-sf-mcp-badge.png)](https://mseep.ai/app/aiadiguru2025-sf-mcp)
+
 <p align="center">
   <h1 align="center">SuccessFactors-MCP</h1>
   <p align="center">
